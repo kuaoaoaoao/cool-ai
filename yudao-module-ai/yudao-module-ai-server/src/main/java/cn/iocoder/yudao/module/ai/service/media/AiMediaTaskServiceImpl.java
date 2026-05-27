@@ -1,6 +1,8 @@
 package cn.iocoder.yudao.module.ai.service.media;
 
 import cn.hutool.core.util.ObjUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.extra.spring.SpringUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.ai.controller.admin.media.vo.AiMediaTaskCreateReqVO;
@@ -23,8 +25,11 @@ import cn.iocoder.yudao.module.infra.api.file.FileApi;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.validation.annotation.Validated;
 
 import java.time.LocalDate;
@@ -73,7 +78,7 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService {
                 .setInputJson(buildTtsInput(reqVO));
         mediaTaskMapper.insert(task);
 
-        executeTtsTask(task);
+        scheduleTtsTask(task);
         return task.getId();
     }
 
@@ -142,12 +147,28 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService {
                 .setStatus(AiMediaTaskStatusEnum.FAILED.getStatus())
                 .setProgress(100)
                 .setStage("failed")
-                .setErrorCode(errorCode)
-                .setErrorMessage(errorMessage)
+                .setErrorCode(StrUtil.maxLength(errorCode, 64))
+                .setErrorMessage(StrUtil.maxLength(errorMessage, 480))
                 .setFinishTime(LocalDateTime.now()));
     }
 
-    private void executeTtsTask(AiMediaTaskDO task) {
+    private void scheduleTtsTask(AiMediaTaskDO task) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            getSelf().executeTtsTask(task);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+
+            @Override
+            public void afterCommit() {
+                getSelf().executeTtsTask(task);
+            }
+
+        });
+    }
+
+    @Async
+    public void executeTtsTask(AiMediaTaskDO task) {
         updateTaskRunning(task.getId(), "calling_provider");
         task.setStatus(AiMediaTaskStatusEnum.RUNNING.getStatus()).setProgress(50).setStage("calling_provider");
         try {
@@ -156,8 +177,7 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService {
                 throw exception(MEDIA_PROVIDER_NOT_EXISTS);
             }
             AiMediaProviderResult providerResult = adapter.execute(task);
-            String fileUrl = fileApi.createFile(providerResult.getContent(), providerResult.getFileName(),
-                    "ai-media/tts", providerResult.getMimeType());
+            String fileUrl = saveProviderResult(task.getId(), providerResult);
             updateTaskSucceeded(task.getId(), "done", fileUrl, providerResult.getMimeType(), providerResult.getRawOutput());
         } catch (AiMediaProviderException e) {
             log.warn("[executeTtsTask][taskId({}) Provider 调用失败：{}]", task.getId(), e.getMessage(), e);
@@ -165,6 +185,30 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService {
         } catch (Exception e) {
             log.warn("[executeTtsTask][taskId({}) TTS 执行失败]", task.getId(), e);
             updateTaskFailed(task.getId(), "EXECUTE_FAIL", e.getMessage());
+        }
+    }
+
+    /**
+     * 获得自身的代理对象，保证 @Async 生效；单元测试没有 Spring 容器时回退到当前对象。
+     */
+    private AiMediaTaskServiceImpl getSelf() {
+        try {
+            return SpringUtil.getBean(getClass());
+        } catch (Exception e) {
+            return this;
+        }
+    }
+
+    private String saveProviderResult(Long taskId, AiMediaProviderResult providerResult) {
+        try {
+            return fileApi.createFile(providerResult.getContent(), providerResult.getFileName(),
+                    "ai-media/tts", providerResult.getMimeType());
+        } catch (Exception e) {
+            int contentLength = providerResult.getContent() == null ? 0 : providerResult.getContent().length;
+            String message = StrUtil.format("保存 TTS 音频文件失败：{}，fileName={}，mimeType={}，contentLength={}",
+                    e.getMessage(), providerResult.getFileName(), providerResult.getMimeType(), contentLength);
+            log.warn("[saveProviderResult][taskId({}) {}]", taskId, message, e);
+            throw new AiMediaProviderException("FILE_SAVE_FAIL", message, e);
         }
     }
 

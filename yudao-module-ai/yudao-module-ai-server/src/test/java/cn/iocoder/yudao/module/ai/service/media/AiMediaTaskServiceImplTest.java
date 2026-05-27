@@ -24,7 +24,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -73,15 +76,37 @@ class AiMediaTaskServiceImplTest extends BaseMockitoUnitTest {
             task.setId(100L);
             return 1;
         }).when(mediaTaskMapper).insert(any(AiMediaTaskDO.class));
+
+        TransactionSynchronizationManager.initSynchronization();
+        Long taskId;
+        List<TransactionSynchronization> synchronizations;
+        try {
+            taskId = service.createTtsTask(userId, reqVO);
+            synchronizations = TransactionSynchronizationManager.getSynchronizations();
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertEquals(100L, taskId);
+        verify(mediaTaskMapper).insert(any(AiMediaTaskDO.class));
+        verify(mediaTaskMapper, never()).updateById(any(AiMediaTaskDO.class));
+        verify(providerAdapterResolver, never()).resolve(any(AiMediaTaskDO.class));
+        assertEquals(1, synchronizations.size());
+    }
+
+    @Test
+    void executeTtsTask_success() {
+        AiMediaTaskDO task = new AiMediaTaskDO()
+                .setId(100L)
+                .setStatus(AiMediaTaskStatusEnum.CREATED.getStatus());
         when(providerAdapterResolver.resolve(any(AiMediaTaskDO.class))).thenReturn(providerAdapter);
         when(providerAdapter.execute(any(AiMediaTaskDO.class))).thenReturn(
                 new AiMediaProviderResult("audio".getBytes(), "tts-100.mp3", "audio/mpeg", Map.of("ok", true)));
         when(fileApi.createFile(any(byte[].class), eq("tts-100.mp3"), eq("ai-media/tts"), eq("audio/mpeg")))
                 .thenReturn("https://file.local/tts-100.mp3");
 
-        Long taskId = service.createTtsTask(userId, reqVO);
+        service.executeTtsTask(task);
 
-        assertEquals(100L, taskId);
         ArgumentCaptor<AiMediaTaskDO> updateCaptor = ArgumentCaptor.forClass(AiMediaTaskDO.class);
         verify(mediaTaskMapper, times(2)).updateById(updateCaptor.capture());
         AiMediaTaskDO successUpdate = updateCaptor.getAllValues().get(1);
@@ -112,13 +137,21 @@ class AiMediaTaskServiceImplTest extends BaseMockitoUnitTest {
                 new AiMediaProviderResult("audio".getBytes(), "tts-100.mp3", "audio/mpeg", Map.of()));
         when(fileApi.createFile(any(byte[].class), any(), any(), any())).thenThrow(new RuntimeException("store down"));
 
-        assertEquals(100L, service.createTtsTask(10L, reqVO));
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertEquals(100L, service.createTtsTask(10L, reqVO));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        service.executeTtsTask(new AiMediaTaskDO().setId(100L));
 
         ArgumentCaptor<AiMediaTaskDO> updateCaptor = ArgumentCaptor.forClass(AiMediaTaskDO.class);
         verify(mediaTaskMapper, times(2)).updateById(updateCaptor.capture());
         AiMediaTaskDO failedUpdate = updateCaptor.getAllValues().get(1);
         assertEquals(AiMediaTaskStatusEnum.FAILED.getStatus(), failedUpdate.getStatus());
-        assertEquals("EXECUTE_FAIL", failedUpdate.getErrorCode());
+        assertEquals("FILE_SAVE_FAIL", failedUpdate.getErrorCode());
+        assertTrue(failedUpdate.getErrorMessage().contains("保存 TTS 音频文件失败"));
     }
 
     @Test

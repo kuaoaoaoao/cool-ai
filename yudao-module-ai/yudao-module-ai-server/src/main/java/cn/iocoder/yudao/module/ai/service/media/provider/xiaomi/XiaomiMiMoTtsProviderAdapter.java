@@ -37,7 +37,9 @@ public class XiaomiMiMoTtsProviderAdapter implements AiMediaProviderAdapter {
     public static final String MODEL = "mimo-v2.5-tts";
 
     private static final String DEFAULT_BASE_URL = "https://api.xiaomimimo.com";
+    private static final String API_VERSION_PATH = "/v1";
     private static final String CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
+    private static final String CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
 
     @Resource
     private AiModelService modelService;
@@ -76,7 +78,7 @@ public class XiaomiMiMoTtsProviderAdapter implements AiMediaProviderAdapter {
                 .execute()) {
             if (response.getStatus() < HttpStatus.HTTP_OK || response.getStatus() >= HttpStatus.HTTP_MULT_CHOICE) {
                 throw new AiMediaProviderException("HTTP_" + response.getStatus(),
-                        StrUtil.maxLength(response.body(), 512));
+                        StrUtil.maxLength(response.body(), 480));
             }
             return parseResponse(response.body(), task);
         } catch (AiMediaProviderException e) {
@@ -109,7 +111,14 @@ public class XiaomiMiMoTtsProviderAdapter implements AiMediaProviderAdapter {
 
     private String buildUrl(String configuredUrl) {
         String baseUrl = StrUtil.blankToDefault(configuredUrl, DEFAULT_BASE_URL);
-        return StrUtil.removeSuffix(baseUrl, "/") + CHAT_COMPLETIONS_PATH;
+        baseUrl = StrUtil.removeSuffix(baseUrl, "/");
+        if (StrUtil.endWith(baseUrl, CHAT_COMPLETIONS_PATH) || StrUtil.endWith(baseUrl, CHAT_COMPLETIONS_SUFFIX)) {
+            return baseUrl;
+        }
+        if (StrUtil.endWith(baseUrl, API_VERSION_PATH)) {
+            return baseUrl + CHAT_COMPLETIONS_SUFFIX;
+        }
+        return baseUrl + CHAT_COMPLETIONS_PATH;
     }
 
     @SneakyThrows

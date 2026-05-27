@@ -88,6 +88,25 @@ class XiaomiMiMoTtsProviderAdapterTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    void execute_success_whenConfiguredUrlContainsV1() throws IOException {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            byte[] response = """
+                    {"choices":[{"message":{"audio":{"data":"YXVkaW8="}}}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        AiMediaTaskDO task = buildTask("http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+        AiMediaProviderResult result = adapter.execute(task);
+
+        assertArrayEquals("audio".getBytes(StandardCharsets.UTF_8), result.getContent());
+    }
+
+    @Test
     void execute_missingApiKey() {
         AiMediaTaskDO task = buildTask("http://127.0.0.1:1");
         when(apiKeyService.validateApiKey(30L)).thenReturn(new AiApiKeyDO()

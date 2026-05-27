@@ -19,11 +19,11 @@ public class AiMediaTtsCreateReqVO {
     @Schema(description = "说话风格/情绪提示", example = "温柔、自然、有亲和力")
     private String stylePrompt;
 
-    @Schema(description = "音色", requiredMode = Schema.RequiredMode.REQUIRED, example = "male-qn-qingse")
+    @Schema(description = "音色", requiredMode = Schema.RequiredMode.REQUIRED, example = "mimo_default")
     @NotBlank(message = "音色不能为空")
     private String voice;
 
-    @Schema(description = "音频格式", requiredMode = Schema.RequiredMode.REQUIRED, example = "mp3")
+    @Schema(description = "音频格式", requiredMode = Schema.RequiredMode.REQUIRED, example = "wav")
     @NotBlank(message = "音频格式不能为空")
     private String format;
 

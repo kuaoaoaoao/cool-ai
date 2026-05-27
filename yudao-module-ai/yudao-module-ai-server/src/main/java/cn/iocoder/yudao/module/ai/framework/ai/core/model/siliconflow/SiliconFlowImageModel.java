@@ -146,6 +146,7 @@ public class SiliconFlowImageModel implements ImageModel {
         return SiliconFlowImageOptions.builder()
                 // Handle portable image options
                 .model(ModelOptionsUtils.mergeOption(runtimeOptionsForProvider.getModel(), defaultOptions.getModel()))
+                .imageSize(ModelOptionsUtils.mergeOption(runtimeOptionsForProvider.getImageSize(), defaultOptions.getImageSize()))
                 .batchSize(ModelOptionsUtils.mergeOption(runtimeOptionsForProvider.getN(), defaultOptions.getN()))
                 .width(ModelOptionsUtils.mergeOption(runtimeOptionsForProvider.getWidth(), defaultOptions.getWidth()))
                 .height(ModelOptionsUtils.mergeOption(runtimeOptionsForProvider.getHeight(), defaultOptions.getHeight()))

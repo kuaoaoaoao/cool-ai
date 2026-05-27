@@ -24,12 +24,17 @@ public interface AiMediaTaskMapper extends BaseMapperX<AiMediaTaskDO> {
                 .eqIfPresent(AiMediaTaskDO::getStatus, reqVO.getStatus())
                 .eqIfPresent(AiMediaTaskDO::getPlatform, reqVO.getPlatform())
                 .betweenIfPresent(AiMediaTaskDO::getCreateTime, reqVO.getCreateTime())
-                .orderByDesc(AiMediaTaskDO::getId));
+                .orderByDesc(AiMediaTaskDO::getCreateTime));
     }
 
     default PageResult<AiMediaTaskDO> selectPageByUser(AiMediaTaskPageReqVO reqVO, Long userId) {
         reqVO.setUserId(userId);
-        return selectPage(reqVO);
+        return selectPage(reqVO, new LambdaQueryWrapperX<AiMediaTaskDO>()
+                .eq(AiMediaTaskDO::getUserId, userId)
+                .eqIfPresent(AiMediaTaskDO::getTaskType, reqVO.getTaskType())
+                .eqIfPresent(AiMediaTaskDO::getStatus, reqVO.getStatus())
+                .eqIfPresent(AiMediaTaskDO::getPlatform, reqVO.getPlatform())
+                .betweenIfPresent(AiMediaTaskDO::getCreateTime, reqVO.getCreateTime()));
     }
 
     default Long selectCountByUserAndTaskTypeAndCreateTime(Long userId, Integer taskType,
