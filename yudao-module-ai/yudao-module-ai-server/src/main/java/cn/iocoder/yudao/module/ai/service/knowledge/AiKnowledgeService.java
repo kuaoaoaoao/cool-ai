@@ -52,6 +52,14 @@ public interface AiKnowledgeService {
     AiKnowledgeDO validateKnowledgeExists(Long id);
 
     /**
+     * 校验知识库是否启用。
+     *
+     * @param id 记录编号
+     * @return 知识库
+     */
+    AiKnowledgeDO validateKnowledgeEnabled(Long id);
+
+    /**
      * 获得知识库分页
      *
      * @param pageReqVO 分页查询

@@ -16,8 +16,7 @@ public class AiApiKeySaveReqVO {
     @NotEmpty(message = "名称不能为空")
     private String name;
 
-    @Schema(description = "密钥", requiredMode = Schema.RequiredMode.REQUIRED, example = "ABC")
-    @NotEmpty(message = "密钥不能为空")
+    @Schema(description = "密钥；更新时可为空，表示沿用原密钥", example = "ABC")
     private String apiKey;
 
     @Schema(description = "平台", requiredMode = Schema.RequiredMode.REQUIRED, example = "OpenAI")

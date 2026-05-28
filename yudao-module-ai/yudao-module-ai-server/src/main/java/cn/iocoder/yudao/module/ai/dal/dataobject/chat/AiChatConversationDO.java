@@ -62,6 +62,10 @@ public class AiChatConversationDO extends BaseDO {
      * 关联 {@link AiChatRoleDO#getId()}
      */
     private Long roleId;
+    /**
+     * 对话绑定知识库编号
+     */
+    private Long knowledgeId;
 
     /**
      * 模型编号

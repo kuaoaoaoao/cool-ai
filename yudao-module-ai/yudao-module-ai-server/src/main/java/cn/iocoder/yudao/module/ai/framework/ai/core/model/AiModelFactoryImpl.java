@@ -2,11 +2,10 @@ package cn.iocoder.yudao.module.ai.framework.ai.core.model;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.lang.Assert;
-import cn.hutool.core.lang.Singleton;
-import cn.hutool.core.lang.func.Func0;
 import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.RuntimeUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import cn.hutool.extra.spring.SpringUtil;
 import cn.iocoder.yudao.framework.common.util.spring.SpringUtils;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
@@ -22,6 +21,7 @@ import cn.iocoder.yudao.module.ai.framework.ai.core.model.siliconflow.SiliconFlo
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.siliconflow.SiliconFlowImageApi;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.siliconflow.SiliconFlowImageModel;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.suno.api.SunoApi;
+import cn.iocoder.yudao.module.ai.framework.ai.core.model.xiaomi.XiaomiMiMoChatModel;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.xinghuo.XingHuoChatModel;
 import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeChatAutoConfiguration;
 import com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeEmbeddingAutoConfiguration;
@@ -80,6 +80,7 @@ import org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfigura
 import org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration;
 import org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration;
 import org.springframework.ai.model.stabilityai.autoconfigure.StabilityAiImageAutoConfiguration;
+import org.springframework.ai.model.NoopApiKey;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.zhipuai.autoconfigure.ZhiPuAiChatAutoConfiguration;
 import org.springframework.ai.model.zhipuai.autoconfigure.ZhiPuAiEmbeddingAutoConfiguration;
@@ -121,6 +122,8 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
 import org.springframework.web.client.RestClient;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import redis.clients.jedis.JedisPooled;
 
 import java.io.File;
@@ -129,6 +132,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.Supplier;
 
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertList;
 import static org.springframework.ai.retry.RetryUtils.DEFAULT_RETRY_TEMPLATE;
@@ -140,10 +146,18 @@ import static org.springframework.ai.retry.RetryUtils.DEFAULT_RETRY_TEMPLATE;
  */
 public class AiModelFactoryImpl implements AiModelFactory {
 
+    private static final ConcurrentMap<String, Object> CLIENT_CACHE = new ConcurrentHashMap<>();
+
     @Override
     public ChatModel getOrCreateChatModel(AiPlatformEnum platform, String apiKey, String url) {
-        String cacheKey = buildClientCacheKey(ChatModel.class, platform, apiKey, url);
-        return Singleton.get(cacheKey, (Func0<ChatModel>) () -> {
+        return getOrCreateChatModel(platform, null, null, apiKey, url);
+    }
+
+    @Override
+    public ChatModel getOrCreateChatModel(AiPlatformEnum platform, Long keyId, String keyVersion,
+                                          String apiKey, String url) {
+        String cacheKey = buildClientCacheKey(ChatModel.class, platform, buildApiKeyCacheToken(keyId, keyVersion, apiKey), url);
+        return getOrCreate(cacheKey, () -> {
             // noinspection EnhancedSwitchMigration
             switch (platform) {
                 case TONG_YI:
@@ -168,6 +182,8 @@ public class AiModelFactoryImpl implements AiModelFactory {
                     return buildXingHuoChatModel(apiKey);
                 case BAI_CHUAN:
                     return buildBaiChuanChatModel(apiKey);
+                case XIAOMI_MIMO:
+                    return buildXiaomiMiMoChatModel(apiKey, url);
                 case OPENAI:
                     return buildOpenAiChatModel(apiKey, url);
                 case AZURE_OPENAI:
@@ -212,6 +228,8 @@ public class AiModelFactoryImpl implements AiModelFactory {
                 return SpringUtil.getBean(XingHuoChatModel.class);
             case BAI_CHUAN:
                 return SpringUtil.getBean(BaiChuanChatModel.class);
+            case XIAOMI_MIMO:
+                throw new IllegalArgumentException("XiaomiMiMo 暂不支持 application.yaml 默认 ChatModel，请在模型管理中配置 API Key");
             case OPENAI:
                 return SpringUtil.getBean(OpenAiChatModel.class);
             case AZURE_OPENAI:
@@ -250,30 +268,44 @@ public class AiModelFactoryImpl implements AiModelFactory {
 
     @Override
     public ImageModel getOrCreateImageModel(AiPlatformEnum platform, String apiKey, String url) {
-        // noinspection EnhancedSwitchMigration
-        switch (platform) {
-            case TONG_YI:
-                return buildTongYiImagesModel(apiKey);
-            case YI_YAN:
-                return buildQianFanImageModel(apiKey);
-            case ZHI_PU:
-                return buildZhiPuAiImageModel(apiKey, url);
-            case OPENAI:
-                return buildOpenAiImageModel(apiKey, url);
-            case SILICON_FLOW:
-                return buildSiliconFlowImageModel(apiKey,url);
-            case STABLE_DIFFUSION:
-                return buildStabilityAiImageModel(apiKey, url);
-            default:
-                throw new IllegalArgumentException(StrUtil.format("未知平台({})", platform));
-        }
+        return getOrCreateImageModel(platform, null, null, apiKey, url);
+    }
+
+    @Override
+    public ImageModel getOrCreateImageModel(AiPlatformEnum platform, Long keyId, String keyVersion,
+                                            String apiKey, String url) {
+        String cacheKey = buildClientCacheKey(ImageModel.class, platform, buildApiKeyCacheToken(keyId, keyVersion, apiKey), url);
+        return getOrCreate(cacheKey, () -> {
+            // noinspection EnhancedSwitchMigration
+            switch (platform) {
+                case TONG_YI:
+                    return buildTongYiImagesModel(apiKey);
+                case YI_YAN:
+                    return buildQianFanImageModel(apiKey);
+                case ZHI_PU:
+                    return buildZhiPuAiImageModel(apiKey, url);
+                case OPENAI:
+                    return buildOpenAiImageModel(apiKey, url);
+                case SILICON_FLOW:
+                    return buildSiliconFlowImageModel(apiKey, url);
+                case STABLE_DIFFUSION:
+                    return buildStabilityAiImageModel(apiKey, url);
+                default:
+                    throw new IllegalArgumentException(StrUtil.format("未知平台({})", platform));
+            }
+        });
     }
 
     @Override
     public MidjourneyApi getOrCreateMidjourneyApi(String apiKey, String url) {
-        String cacheKey = buildClientCacheKey(MidjourneyApi.class, AiPlatformEnum.MIDJOURNEY.getPlatform(), apiKey,
-                url);
-        return Singleton.get(cacheKey, (Func0<MidjourneyApi>) () -> {
+        return getOrCreateMidjourneyApi(null, null, apiKey, url);
+    }
+
+    @Override
+    public MidjourneyApi getOrCreateMidjourneyApi(Long keyId, String keyVersion, String apiKey, String url) {
+        String cacheKey = buildClientCacheKey(MidjourneyApi.class, AiPlatformEnum.MIDJOURNEY.getPlatform(),
+                buildApiKeyCacheToken(keyId, keyVersion, apiKey), url);
+        return getOrCreate(cacheKey, () -> {
             YudaoAiProperties.Midjourney properties = SpringUtil.getBean(YudaoAiProperties.class)
                     .getMidjourney();
             return new MidjourneyApi(url, apiKey, properties.getNotifyUrl());
@@ -282,15 +314,29 @@ public class AiModelFactoryImpl implements AiModelFactory {
 
     @Override
     public SunoApi getOrCreateSunoApi(String apiKey, String url) {
-        String cacheKey = buildClientCacheKey(SunoApi.class, AiPlatformEnum.SUNO.getPlatform(), apiKey, url);
-        return Singleton.get(cacheKey, (Func0<SunoApi>) () -> new SunoApi(url));
+        return getOrCreateSunoApi(null, null, apiKey, url);
+    }
+
+    @Override
+    public SunoApi getOrCreateSunoApi(Long keyId, String keyVersion, String apiKey, String url) {
+        String cacheKey = buildClientCacheKey(SunoApi.class, AiPlatformEnum.SUNO.getPlatform(),
+                buildApiKeyCacheToken(keyId, keyVersion, apiKey), url);
+        return getOrCreate(cacheKey, () -> new SunoApi(url));
     }
 
     @Override
     @SuppressWarnings("EnhancedSwitchMigration")
     public EmbeddingModel getOrCreateEmbeddingModel(AiPlatformEnum platform, String apiKey, String url, String model) {
-        String cacheKey = buildClientCacheKey(EmbeddingModel.class, platform, apiKey, url, model);
-        return Singleton.get(cacheKey, (Func0<EmbeddingModel>) () -> {
+        return getOrCreateEmbeddingModel(platform, null, null, apiKey, url, model);
+    }
+
+    @Override
+    @SuppressWarnings("EnhancedSwitchMigration")
+    public EmbeddingModel getOrCreateEmbeddingModel(AiPlatformEnum platform, Long keyId, String keyVersion,
+                                                    String apiKey, String url, String model) {
+        String cacheKey = buildClientCacheKey(EmbeddingModel.class, platform, buildApiKeyCacheToken(keyId, keyVersion, apiKey),
+                url, model);
+        return getOrCreate(cacheKey, () -> {
             switch (platform) {
                 case TONG_YI:
                     return buildTongYiEmbeddingModel(apiKey, model);
@@ -317,7 +363,7 @@ public class AiModelFactoryImpl implements AiModelFactory {
                                               EmbeddingModel embeddingModel,
                                               Map<String, Class<?>> metadataFields) {
         String cacheKey = buildClientCacheKey(VectorStore.class, embeddingModel, type);
-        return Singleton.get(cacheKey, (Func0<VectorStore>) () -> {
+        return getOrCreate(cacheKey, () -> {
             if (type == SimpleVectorStore.class) {
                 return buildSimpleVectorStore(embeddingModel);
             }
@@ -339,6 +385,21 @@ public class AiModelFactoryImpl implements AiModelFactory {
             return clazz.getName();
         }
         return StrUtil.format("{}#{}", clazz.getName(), ArrayUtil.join(params, "_"));
+    }
+
+    private static String buildApiKeyCacheToken(Long keyId, String keyVersion, String apiKey) {
+        if (keyId != null && StrUtil.isNotBlank(keyVersion)) {
+            return StrUtil.format("{}:{}", keyId, keyVersion);
+        }
+        if (StrUtil.isBlank(apiKey)) {
+            return "no-key";
+        }
+        return DigestUtil.sha256Hex(apiKey);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T getOrCreate(String cacheKey, Supplier<T> supplier) {
+        return (T) CLIENT_CACHE.computeIfAbsent(cacheKey, key -> supplier.get());
     }
 
     // ========== 各种创建 spring-ai 客户端的方法 ==========
@@ -513,6 +574,28 @@ public class AiModelFactoryImpl implements AiModelFactory {
                 .openAiApi(openAiApi)
                 .toolCallingManager(getToolCallingManager())
                 .build();
+    }
+
+    /**
+     * 创建 XiaomiMiMoChatModel 对象。
+     *
+     * MiMo 兼容 OpenAI Chat Completions 请求体，但使用 api-key Header 鉴权。
+     */
+    private static XiaomiMiMoChatModel buildXiaomiMiMoChatModel(String apiKey, String url) {
+        url = StrUtil.blankToDefault(url, XiaomiMiMoChatModel.BASE_URL);
+        MultiValueMap<String, String> headers = new LinkedMultiValueMap<>();
+        headers.add("api-key", apiKey);
+        OpenAiApi openAiApi = OpenAiApi.builder()
+                .baseUrl(url)
+                .apiKey(new NoopApiKey())
+                .headers(headers)
+                .completionsPath(XiaomiMiMoChatModel.COMPLETE_PATH)
+                .build();
+        OpenAiChatModel openAiChatModel = OpenAiChatModel.builder()
+                .openAiApi(openAiApi)
+                .toolCallingManager(getToolCallingManager())
+                .build();
+        return new XiaomiMiMoChatModel(openAiChatModel);
     }
 
     /**

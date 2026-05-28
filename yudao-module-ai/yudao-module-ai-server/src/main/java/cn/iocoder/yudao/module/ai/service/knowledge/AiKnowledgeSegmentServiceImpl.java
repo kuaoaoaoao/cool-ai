@@ -95,7 +95,7 @@ public class AiKnowledgeSegmentServiceImpl implements AiKnowledgeSegmentService 
     public void createKnowledgeSegmentBySplitContent(Long documentId, String content) {
         // 1. 校验
         AiKnowledgeDocumentDO documentDO = knowledgeDocumentService.validateKnowledgeDocumentExists(documentId);
-        AiKnowledgeDO knowledgeDO = knowledgeService.validateKnowledgeExists(documentDO.getKnowledgeId());
+        AiKnowledgeDO knowledgeDO = knowledgeService.validateKnowledgeEnabled(documentDO.getKnowledgeId());
         VectorStore vectorStore = getVectorStoreById(knowledgeDO);
 
         // 2. 文档切片（使用自动检测策略）
@@ -192,7 +192,7 @@ public class AiKnowledgeSegmentServiceImpl implements AiKnowledgeSegmentService 
     @Override
     public void reindexKnowledgeSegmentByKnowledgeId(Long knowledgeId) {
         // 1.1 校验知识库存在
-        AiKnowledgeDO knowledge = knowledgeService.validateKnowledgeExists(knowledgeId);
+        AiKnowledgeDO knowledge = knowledgeService.validateKnowledgeEnabled(knowledgeId);
         // 1.2 获取知识库向量实例
         VectorStore vectorStore = getVectorStoreById(knowledge);
 
@@ -240,7 +240,7 @@ public class AiKnowledgeSegmentServiceImpl implements AiKnowledgeSegmentService 
     @Override
     public List<AiKnowledgeSegmentSearchRespBO> searchKnowledgeSegment(AiKnowledgeSegmentSearchReqBO reqBO) {
         // 1. 校验
-        AiKnowledgeDO knowledge = knowledgeService.validateKnowledgeExists(reqBO.getKnowledgeId());
+        AiKnowledgeDO knowledge = knowledgeService.validateKnowledgeEnabled(reqBO.getKnowledgeId());
 
         // 2. 检索
         List<Document> documents = searchDocument(knowledge, reqBO);
@@ -249,8 +249,8 @@ public class AiKnowledgeSegmentServiceImpl implements AiKnowledgeSegmentService 
         }
 
         // 3.1 段落召回
-        List<AiKnowledgeSegmentDO> segments = segmentMapper
-                .selectListByVectorIds(convertList(documents, Document::getId));
+        List<AiKnowledgeSegmentDO> segments = segmentMapper.selectListByVectorIdsAndStatus(
+                convertList(documents, Document::getId), CommonStatusEnum.ENABLE.getStatus());
         if (CollUtil.isEmpty(segments)) {
             return ListUtil.empty();
         }
@@ -348,7 +348,7 @@ public class AiKnowledgeSegmentServiceImpl implements AiKnowledgeSegmentService 
     }
 
     private VectorStore getVectorStoreById(Long knowledgeId) {
-        AiKnowledgeDO knowledge = knowledgeService.validateKnowledgeExists(knowledgeId);
+        AiKnowledgeDO knowledge = knowledgeService.validateKnowledgeEnabled(knowledgeId);
         return getVectorStoreById(knowledge);
     }
 
@@ -473,7 +473,7 @@ public class AiKnowledgeSegmentServiceImpl implements AiKnowledgeSegmentService 
         AiKnowledgeDocumentDO document = knowledgeDocumentService
                 .validateKnowledgeDocumentExists(createReqVO.getDocumentId());
         // 1.2 获取知识库信息
-        AiKnowledgeDO knowledge = knowledgeService.validateKnowledgeExists(document.getKnowledgeId());
+        AiKnowledgeDO knowledge = knowledgeService.validateKnowledgeEnabled(document.getKnowledgeId());
         // 1.3 校验 token 熟练
         Integer tokens = tokenCountEstimator.estimate(createReqVO.getContent());
         if (tokens > document.getSegmentMaxTokens()) {

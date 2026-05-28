@@ -10,8 +10,12 @@ import cn.iocoder.yudao.module.ai.controller.admin.chat.vo.conversation.AiChatCo
 import cn.iocoder.yudao.module.ai.controller.admin.chat.vo.conversation.AiChatConversationRespVO;
 import cn.iocoder.yudao.module.ai.controller.admin.chat.vo.conversation.AiChatConversationUpdateMyReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.chat.AiChatConversationDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
+import cn.iocoder.yudao.module.ai.framework.ai.core.model.AiModelCapabilities;
+import cn.iocoder.yudao.module.ai.framework.ai.core.model.AiModelCapability;
 import cn.iocoder.yudao.module.ai.service.chat.AiChatConversationService;
 import cn.iocoder.yudao.module.ai.service.chat.AiChatMessageService;
+import cn.iocoder.yudao.module.ai.service.model.AiModelService;
 import com.fhs.core.trans.anno.TransMethodResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -39,6 +43,8 @@ public class AiChatConversationController {
     private AiChatConversationService chatConversationService;
     @Resource
     private AiChatMessageService chatMessageService;
+    @Resource
+    private AiModelService modelService;
 
     @PostMapping("/create-my")
     @Operation(summary = "创建【我的】聊天对话")
@@ -58,7 +64,7 @@ public class AiChatConversationController {
     @TransMethodResult
     public CommonResult<List<AiChatConversationRespVO>> getChatConversationMyList() {
         List<AiChatConversationDO> list = chatConversationService.getChatConversationListByUserId(getLoginUserId());
-        return success(BeanUtils.toBean(list, AiChatConversationRespVO.class));
+        return success(convertList(list, this::buildConversationRespVO));
     }
 
     @GetMapping("/get-my")
@@ -70,7 +76,7 @@ public class AiChatConversationController {
         if (conversation != null && ObjUtil.notEqual(conversation.getUserId(), getLoginUserId())) {
             conversation = null;
         }
-        return success(BeanUtils.toBean(conversation, AiChatConversationRespVO.class));
+        return success(buildConversationRespVO(conversation));
     }
 
     @DeleteMapping("/delete-my")
@@ -103,7 +109,10 @@ public class AiChatConversationController {
         Map<Long, Integer> messageCountMap = chatMessageService.getChatMessageCountMap(
                 convertList(pageResult.getList(), AiChatConversationDO::getId));
         return success(BeanUtils.toBean(pageResult, AiChatConversationRespVO.class,
-                conversation -> conversation.setMessageCount(messageCountMap.getOrDefault(conversation.getId(), 0))));
+                conversation -> {
+                    conversation.setMessageCount(messageCountMap.getOrDefault(conversation.getId(), 0));
+                    fillModelCapabilities(conversation);
+                }));
     }
 
     @Operation(summary = "管理员删除对话")
@@ -113,6 +122,21 @@ public class AiChatConversationController {
     public CommonResult<Boolean> deleteChatConversationByAdmin(@RequestParam("id") Long id) {
         chatConversationService.deleteChatConversationByAdmin(id);
         return success(true);
+    }
+
+    private AiChatConversationRespVO buildConversationRespVO(AiChatConversationDO conversation) {
+        return fillModelCapabilities(BeanUtils.toBean(conversation, AiChatConversationRespVO.class));
+    }
+
+    private AiChatConversationRespVO fillModelCapabilities(AiChatConversationRespVO respVO) {
+        if (respVO == null || respVO.getModelId() == null) {
+            return respVO;
+        }
+        AiModelDO model = modelService.getModel(respVO.getModelId());
+        AiModelCapability capability = AiModelCapabilities.infer(model);
+        return respVO.setCapabilities(capability.getCapabilities())
+                .setInputModalities(capability.getInputModalities())
+                .setOutputModalities(capability.getOutputModalities());
     }
 
 }

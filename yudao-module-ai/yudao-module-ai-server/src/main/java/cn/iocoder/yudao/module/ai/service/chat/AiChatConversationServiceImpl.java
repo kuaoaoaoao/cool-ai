@@ -56,19 +56,21 @@ public class AiChatConversationServiceImpl implements AiChatConversationService 
         // 1.1 获得 AiChatRoleDO 聊天角色
         AiChatRoleDO role = createReqVO.getRoleId() != null ? chatRoleService.validateChatRole(createReqVO.getRoleId()) : null;
         // 1.2 获得 AiModelDO 聊天模型
-        AiModelDO model = role != null && role.getModelId() != null ? modalService.validateModel(role.getModelId())
+        AiModelDO model = role != null && role.getModelId() != null
+                ? modalService.validateModel(role.getModelId(), AiModelTypeEnum.CHAT)
                 : modalService.getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());
         Assert.notNull(model, "必须找到默认模型");
         validateChatModel(model);
 
         // 1.3 校验知识库
         if (Objects.nonNull(createReqVO.getKnowledgeId())) {
-            knowledgeService.validateKnowledgeExists(createReqVO.getKnowledgeId());
+            knowledgeService.validateKnowledgeEnabled(createReqVO.getKnowledgeId());
         }
 
         // 2. 创建 AiChatConversationDO 聊天对话
         AiChatConversationDO conversation = new AiChatConversationDO().setUserId(userId).setPinned(false)
                 .setModelId(model.getId()).setModel(model.getModel())
+                .setKnowledgeId(createReqVO.getKnowledgeId())
                 .setTemperature(model.getTemperature()).setMaxTokens(model.getMaxTokens()).setMaxContexts(model.getMaxContexts());
         if (role != null) {
             conversation.setTitle(role.getName()).setRoleId(role.getId()).setSystemMessage(role.getSystemMessage());
@@ -89,12 +91,13 @@ public class AiChatConversationServiceImpl implements AiChatConversationService 
         // 1.2 校验模型是否存在（修改模型的情况）
         AiModelDO model = null;
         if (updateReqVO.getModelId() != null) {
-            model = modalService.validateModel(updateReqVO.getModelId());
+            model = modalService.validateModel(updateReqVO.getModelId(), AiModelTypeEnum.CHAT);
+            validateChatModel(model);
         }
 
         // 1.3 校验知识库是否存在
         if (updateReqVO.getKnowledgeId() != null) {
-            knowledgeService.validateKnowledgeExists(updateReqVO.getKnowledgeId());
+            knowledgeService.validateKnowledgeEnabled(updateReqVO.getKnowledgeId());
         }
 
         // 2. 更新对话信息

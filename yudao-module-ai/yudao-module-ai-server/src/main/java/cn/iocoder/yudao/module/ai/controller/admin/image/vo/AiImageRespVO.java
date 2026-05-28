@@ -24,6 +24,9 @@ public class AiImageRespVO {
     @Schema(description = "模型", requiredMode = Schema.RequiredMode.REQUIRED, example = "stable-diffusion-v1-6")
     private String model;
 
+    @Schema(description = "模型编号", example = "1024")
+    private Long modelId;
+
     @Schema(description = "提示词", requiredMode = Schema.RequiredMode.REQUIRED, example = "南极的小企鹅")
     private String prompt;
 
@@ -46,10 +49,13 @@ public class AiImageRespVO {
     private String errorMessage;
 
     @Schema(description = "绘制参数")
-    private Map<String, String> options;
+    private Map<String, Object> options;
 
     @Schema(description = "mj buttons 按钮")
     private List<MidjourneyApi.Button> buttons;
+
+    @Schema(description = "任务编号")
+    private String taskId;
 
     @Schema(description = "完成时间")
     private LocalDateTime finishTime;

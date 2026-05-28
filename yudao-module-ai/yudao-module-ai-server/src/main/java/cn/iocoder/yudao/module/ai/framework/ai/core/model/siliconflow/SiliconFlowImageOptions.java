@@ -91,6 +91,18 @@ public class SiliconFlowImageOptions implements ImageOptions {
         }
     }
 
+    public void setN(Integer n) {
+        this.batchSize = n;
+    }
+
+    public void setResponseFormat(String responseFormat) {
+        // SiliconFlow image API always returns image URLs.
+    }
+
+    public void setStyle(String style) {
+        // SiliconFlow does not support the portable style option.
+    }
+
     public static class SiliconFlowImageOptionsBuilder {
 
         public SiliconFlowImageOptionsBuilder width(Integer width) {

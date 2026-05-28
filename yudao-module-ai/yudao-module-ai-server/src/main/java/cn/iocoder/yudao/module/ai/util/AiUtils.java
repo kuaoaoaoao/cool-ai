@@ -57,6 +57,13 @@ public class AiUtils {
             "qwen3-omni-flash", "qwen-omni-turbo"
     );
 
+    /**
+     * 小米 MiMo 支持图片理解的模型。
+     */
+    public static final Set<String> XIAOMI_MIMO_VISION_MODELS = SetUtils.asSet(
+            "mimo-v2.5", "mimo-v2-omni"
+    );
+
     public static ChatOptions buildChatOptions(AiPlatformEnum platform, String model, Double temperature, Integer maxTokens) {
         return buildChatOptions(platform, model, temperature, maxTokens, null, null);
     }
@@ -93,6 +100,7 @@ public class AiUtils {
             case OPENAI:
             case GEMINI: // 复用 OpenAI 客户端
             case BAI_CHUAN: // 复用 OpenAI 客户端
+            case XIAOMI_MIMO: // 复用 OpenAI Chat Completions 请求结构
             case GROK: // 复用 OpenAI 客户端
                 return OpenAiChatOptions.builder().model(model).temperature(temperature).maxTokens(maxTokens)
                         .toolCallbacks(toolCallbacks).toolContext(toolContext).build();
@@ -108,6 +116,40 @@ public class AiUtils {
             default:
                 throw new IllegalArgumentException(StrUtil.format("未知平台({})", platform));
         }
+    }
+
+    public static boolean supportImageInput(AiPlatformEnum platform, String model) {
+        if (platform == null || StrUtil.isBlank(model)) {
+            return false;
+        }
+        return switch (platform) {
+            case TONG_YI -> TONG_YI_MULTI_MODELS.contains(model);
+            case XIAOMI_MIMO -> XIAOMI_MIMO_VISION_MODELS.contains(model);
+            case OPENAI -> StrUtil.containsAnyIgnoreCase(model, "vision", "gpt-4o", "gpt-4.1", "gpt-5");
+            case ANTHROPIC -> StrUtil.startWithAnyIgnoreCase(model, "claude-3", "claude-sonnet-4", "claude-opus-4");
+            case GEMINI -> StrUtil.startWithIgnoreCase(model, "gemini-");
+            default -> false;
+        };
+    }
+
+    public static boolean supportAudioInput(AiPlatformEnum platform, String model) {
+        if (platform == null || StrUtil.isBlank(model)) {
+            return false;
+        }
+        return switch (platform) {
+            case XIAOMI_MIMO -> XIAOMI_MIMO_VISION_MODELS.contains(model);
+            default -> false;
+        };
+    }
+
+    public static boolean supportVideoInput(AiPlatformEnum platform, String model) {
+        if (platform == null || StrUtil.isBlank(model)) {
+            return false;
+        }
+        return switch (platform) {
+            case XIAOMI_MIMO -> XIAOMI_MIMO_VISION_MODELS.contains(model);
+            default -> false;
+        };
     }
 
     public static Message buildMessage(String type, String content) {

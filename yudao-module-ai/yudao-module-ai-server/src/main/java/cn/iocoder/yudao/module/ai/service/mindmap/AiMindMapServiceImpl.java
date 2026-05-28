@@ -17,7 +17,6 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiChatRoleDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.mindmap.AiMindMapMapper;
 import cn.iocoder.yudao.module.ai.enums.AiChatRoleEnum;
-import cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants;
 import cn.iocoder.yudao.module.ai.service.model.AiChatRoleService;
 import cn.iocoder.yudao.module.ai.service.model.AiModelService;
 import jakarta.annotation.Resource;
@@ -34,6 +33,7 @@ import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.error;
@@ -48,6 +48,8 @@ import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.*;
 @Service
 @Slf4j
 public class AiMindMapServiceImpl implements AiMindMapService {
+
+    private static final int ERROR_MESSAGE_MAX_LENGTH = 480;
 
     @Resource
     private AiModelService modalService;
@@ -82,8 +84,9 @@ public class AiMindMapServiceImpl implements AiMindMapService {
 
         // 3.2 流式返回
         StringBuffer contentBuffer = new StringBuffer();
-        return streamResponse.map(chunk -> {
-            String newContent = chunk.getResult() != null ? chunk.getResult().getOutput().getText() : null;
+        AtomicBoolean streamFailed = new AtomicBoolean(false);
+        Flux<CommonResult<String>> result = streamResponse.map(chunk -> {
+            String newContent = AiUtils.getChatResponseContent(chunk);
             newContent = StrUtil.nullToDefault(newContent, ""); // 避免 null 的 情况
             contentBuffer.append(newContent);
             // 响应结果
@@ -93,12 +96,22 @@ public class AiMindMapServiceImpl implements AiMindMapService {
             TenantUtils.executeIgnore(() ->
                     mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId()).setGeneratedContent(contentBuffer.toString())));
         }).doOnError(throwable -> {
-            log.error("[generateWriteContent][generateReqVO({}) 发生异常]", generateReqVO, throwable);
+            streamFailed.set(true);
+            log.error("[generateMindMap][generateReqVO({}) 发生异常]", generateReqVO, throwable);
             // 忽略租户，因为 Flux 异步无法透传租户
             TenantUtils.executeIgnore(() ->
-                    mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId()).setErrorMessage(throwable.getMessage())));
-        }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.WRITE_STREAM_ERROR)));
-
+                    mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId())
+                            .setErrorMessage(StrUtil.maxLength(throwable.getMessage(), ERROR_MESSAGE_MAX_LENGTH))));
+        }).onErrorResume(error -> Flux.just(error(MIND_MAP_STREAM_ERROR)));
+        return Flux.concat(result, Flux.defer(() -> {
+            if (streamFailed.get() || StrUtil.isNotBlank(contentBuffer.toString())) {
+                return Flux.empty();
+            }
+            String errorMessage = MIND_MAP_GENERATE_RESULT_EMPTY.getMsg();
+            TenantUtils.executeIgnore(() -> mindMapMapper.updateById(new AiMindMapDO().setId(mindMapDO.getId())
+                    .setErrorMessage(errorMessage)));
+            return Flux.just(error(MIND_MAP_GENERATE_RESULT_EMPTY));
+        }));
     }
 
     private Prompt buildPrompt(AiMindMapGenerateReqVO generateReqVO, AiModelDO model, String systemMessage) {
@@ -124,7 +137,7 @@ public class AiMindMapServiceImpl implements AiMindMapService {
     private AiModelDO getModel(AiChatRoleDO role) {
         AiModelDO model = null;
         if (role != null && role.getModelId() != null) {
-            model = modalService.getModel(role.getModelId());
+            model = modalService.validateModel(role.getModelId());
         }
         if (model == null) {
             model = modalService.getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());

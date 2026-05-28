@@ -1,11 +1,11 @@
 package cn.iocoder.yudao.module.ai.service.chat;
 
-import cn.hutool.core.codec.Base64;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.file.FileNameUtil;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.http.HttpUtil;
+import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+import cn.iocoder.yudao.framework.common.exception.ServiceException;
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
@@ -23,9 +23,12 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiToolDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.chat.AiChatMessageMapper;
 import cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
+import cn.iocoder.yudao.module.ai.framework.ai.core.model.xiaomi.XiaomiMiMoMultimodalChatClient;
+import cn.iocoder.yudao.module.ai.framework.ai.core.model.xiaomi.XiaomiMiMoMultimodalChatClient.XiaomiMiMoChatResult;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchClient;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchRequest;
 import cn.iocoder.yudao.module.ai.framework.ai.core.webserch.AiWebSearchResponse;
+import cn.iocoder.yudao.module.ai.service.common.AiRemoteResourceService;
 import cn.iocoder.yudao.module.ai.service.knowledge.AiKnowledgeDocumentService;
 import cn.iocoder.yudao.module.ai.service.knowledge.AiKnowledgeSegmentService;
 import cn.iocoder.yudao.module.ai.service.knowledge.bo.AiKnowledgeSegmentSearchReqBO;
@@ -48,6 +51,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.StreamingChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.content.Media;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.mcp.client.common.autoconfigure.properties.McpClientCommonProperties;
 import org.springframework.ai.tool.ToolCallback;
@@ -55,6 +59,7 @@ import org.springframework.ai.tool.resolution.ToolCallbackResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.MimeTypeUtils;
 import reactor.core.publisher.Flux;
 
 import java.time.LocalDateTime;
@@ -69,7 +74,16 @@ import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertList;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertSet;
 import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_CONVERSATION_NOT_EXISTS;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_MCP_CLIENT_NOT_EXISTS;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_MCP_NOT_ENABLE;
 import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_MESSAGE_NOT_EXIST;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_IMAGE_DOWNLOAD_FAIL;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_MODEL_NOT_SUPPORT_AUDIO;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_MODEL_NOT_SUPPORT_IMAGE;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_MODEL_NOT_SUPPORT_VIDEO;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.CHAT_WEB_SEARCH_NOT_ENABLE;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.TOOL_DISABLE;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.TOOL_NAME_NOT_EXISTS;
 
 /**
  * AI 聊天消息 Service 实现类
@@ -106,6 +120,9 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
             "%s\n\n" + // 多个 <Attachment></Attachment> 的拼接
             "回答要求：\n- 避免提及 <Attachment></Attachment> 附件的编码格式。";
 
+    private static final int MAX_IMAGE_ATTACHMENT_COUNT = 5;
+    private static final long MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024L;
+
     @Resource
     private AiChatMessageMapper chatMessageMapper;
 
@@ -119,6 +136,10 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
     private AiKnowledgeSegmentService knowledgeSegmentService;
     @Resource
     private AiKnowledgeDocumentService knowledgeDocumentService;
+    @Resource
+    private AiRemoteResourceService remoteResourceService;
+    @Resource
+    private XiaomiMiMoMultimodalChatClient xiaomiMiMoMultimodalChatClient;
     @Resource
     private AiToolService toolService;
 
@@ -148,16 +169,18 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         List<AiChatMessageDO> historyMessages = chatMessageMapper.selectListByConversationId(conversation.getId());
         // 1.2 校验模型
         AiModelDO model = modalService.validateModel(conversation.getModelId());
-        ChatModel chatModel = modalService.getChatModel(model.getId());
 
         // 2.1 知识库召回
         List<AiKnowledgeSegmentSearchRespBO> knowledgeSegments = recallKnowledgeSegment(
                 sendReqVO.getContent(), conversation);
 
         // 2.2 联网搜索
-        AiWebSearchResponse webSearchResponse = Boolean.TRUE.equals(sendReqVO.getUseSearch()) && webSearchClient != null ?
-                webSearchClient.search(new AiWebSearchRequest().setQuery(sendReqVO.getContent())
-                        .setSummary(true).setCount(WEB_SEARCH_COUNT)) : null;
+        AiWebSearchResponse webSearchResponse = searchWeb(sendReqVO);
+
+        // 2.3 创建 chat 需要的 Prompt。注意：放在插入消息前，避免附件下载/模型能力校验失败时写入空消息。
+        Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+        boolean useXiaomiMiMoMultimodal = xiaomiMiMoMultimodalChatClient.supports(model, sendReqVO.getAttachmentUrls());
+        ChatModel chatModel = useXiaomiMiMoMultimodal ? null : modalService.getChatModel(model.getId());
 
         // 3. 插入 user 发送消息
         AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
@@ -169,13 +192,20 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
                 knowledgeSegments, null, webSearchResponse);
 
-        // 4.2 创建 chat 需要的 Prompt
-        Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
-        ChatResponse chatResponse = chatModel.call(prompt);
+        // 4.2 调用模型
+        String newContent;
+        String newReasoningContent;
+        if (useXiaomiMiMoMultimodal) {
+            XiaomiMiMoChatResult chatResult = xiaomiMiMoMultimodalChatClient.call(model, prompt, sendReqVO.getAttachmentUrls());
+            newContent = chatResult.getContent();
+            newReasoningContent = chatResult.getReasoningContent();
+        } else {
+            ChatResponse chatResponse = chatModel.call(prompt);
+            newContent = AiUtils.getChatResponseContent(chatResponse);
+            newReasoningContent = AiUtils.getChatResponseReasoningContent(chatResponse);
+        }
 
         // 4.3 更新响应内容
-        String newContent = AiUtils.getChatResponseContent(chatResponse);
-        String newReasoningContent = AiUtils.getChatResponseReasoningContent(chatResponse);
         chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
                 .setContent(newContent).setReasoningContent(newReasoningContent));
         // 4.4 响应结果
@@ -189,13 +219,14 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         return new AiChatMessageSendRespVO()
                 .setSend(BeanUtils.toBean(userMessage, AiChatMessageSendRespVO.Message.class))
                 .setReceive(BeanUtils.toBean(assistantMessage, AiChatMessageSendRespVO.Message.class)
-                        .setContent(newContent).setSegments(segments)
+                        .setContent(newContent).setReasoningContent(newReasoningContent).setSegments(segments)
                         .setWebSearchPages(webSearchResponse != null ? webSearchResponse.getLists() : null));
     }
 
     @Override
     public Flux<CommonResult<AiChatMessageSendRespVO>> sendChatMessageStream(AiChatMessageSendReqVO sendReqVO,
             Long userId) {
+        try {
         // 1.1 校验对话存在
         AiChatConversationDO conversation = chatConversationService
                 .validateChatConversationExists(sendReqVO.getConversationId());
@@ -205,16 +236,18 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         List<AiChatMessageDO> historyMessages = chatMessageMapper.selectListByConversationId(conversation.getId());
         // 1.2 校验模型
         AiModelDO model = modalService.validateModel(conversation.getModelId());
-        StreamingChatModel chatModel = modalService.getChatModel(model.getId());
 
         // 2.1 知识库找回
         List<AiKnowledgeSegmentSearchRespBO> knowledgeSegments = recallKnowledgeSegment(
                 sendReqVO.getContent(), conversation);
 
         // 2.2 联网搜索
-        AiWebSearchResponse webSearchResponse = Boolean.TRUE.equals(sendReqVO.getUseSearch()) && webSearchClient != null ?
-                webSearchClient.search(new AiWebSearchRequest().setQuery(sendReqVO.getContent())
-                        .setSummary(true).setCount(WEB_SEARCH_COUNT)) : null;
+        AiWebSearchResponse webSearchResponse = searchWeb(sendReqVO);
+
+        // 2.3 创建 chat 需要的 Prompt。注意：放在插入消息前，避免附件下载/模型能力校验失败时写入空消息。
+        Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
+        boolean useXiaomiMiMoMultimodal = xiaomiMiMoMultimodalChatClient.supports(model, sendReqVO.getAttachmentUrls());
+        StreamingChatModel chatModel = useXiaomiMiMoMultimodal ? null : modalService.getChatModel(model.getId());
 
         // 3. 插入 user 发送消息
         AiChatMessageDO userMessage = createChatMessage(conversation.getId(), null, model,
@@ -226,8 +259,12 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 userId, conversation.getRoleId(), MessageType.ASSISTANT, "", sendReqVO.getUseContext(),
                 knowledgeSegments, null, webSearchResponse);
 
+        if (useXiaomiMiMoMultimodal) {
+            return sendXiaomiMiMoMultimodalStream(model, prompt, sendReqVO, userId, userMessage, assistantMessage,
+                    knowledgeSegments, webSearchResponse);
+        }
+
         // 4.2 构建 Prompt，并进行调用
-        Prompt prompt = buildPrompt(conversation, historyMessages, knowledgeSegments, webSearchResponse, model, sendReqVO);
         Flux<ChatResponse> streamResponse = chatModel.stream(prompt);
 
         // 4.3 流式返回
@@ -300,26 +337,113 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 }
             });
         }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
+        } catch (ServiceException e) {
+            log.warn("[sendChatMessageStream][userId({}) sendReqVO({}) 前置校验异常：{}]", userId, sendReqVO, e.getMessage());
+            return Flux.just(error(e));
+        } catch (Exception e) {
+            log.error("[sendChatMessageStream][userId({}) sendReqVO({}) 前置处理异常]", userId, sendReqVO, e);
+            return Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR));
+        }
+    }
+
+    private Flux<CommonResult<AiChatMessageSendRespVO>> sendXiaomiMiMoMultimodalStream(AiModelDO model,
+            Prompt prompt, AiChatMessageSendReqVO sendReqVO, Long userId,
+            AiChatMessageDO userMessage, AiChatMessageDO assistantMessage,
+            List<AiKnowledgeSegmentSearchRespBO> knowledgeSegments, AiWebSearchResponse webSearchResponse) {
+        StringBuffer contentBuffer = new StringBuffer();
+        StringBuffer reasoningContentBuffer = new StringBuffer();
+        return Flux.defer(() -> {
+            XiaomiMiMoChatResult chatResult = xiaomiMiMoMultimodalChatClient.call(model, prompt,
+                    sendReqVO.getAttachmentUrls());
+            String newContent = StrUtil.nullToDefault(chatResult.getContent(), "");
+            String newReasoningContent = StrUtil.nullToDefault(chatResult.getReasoningContent(), "");
+            contentBuffer.append(newContent);
+            reasoningContentBuffer.append(newReasoningContent);
+            return Flux.just(success(new AiChatMessageSendRespVO()
+                    .setSend(BeanUtils.toBean(userMessage, AiChatMessageSendRespVO.Message.class))
+                    .setReceive(BeanUtils.toBean(assistantMessage, AiChatMessageSendRespVO.Message.class)
+                            .setContent(newContent)
+                            .setReasoningContent(newReasoningContent)
+                            .setSegments(buildKnowledgeSegments(knowledgeSegments))
+                            .setWebSearchPages(webSearchResponse != null ? webSearchResponse.getLists() : null))));
+        }).doOnComplete(() -> TenantUtils.executeIgnore(() -> chatMessageMapper.updateById(
+                new AiChatMessageDO().setId(assistantMessage.getId()).setContent(contentBuffer.toString())
+                        .setReasoningContent(reasoningContentBuffer.toString()))))
+                .doOnError(throwable -> {
+                    log.error("[sendXiaomiMiMoMultimodalStream][userId({}) sendReqVO({}) 发生异常]",
+                            userId, sendReqVO, throwable);
+                    TenantUtils.executeIgnore(() -> {
+                        if (StrUtil.isNotEmpty(contentBuffer)) {
+                            chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                                    .setContent(contentBuffer.toString())
+                                    .setReasoningContent(reasoningContentBuffer.toString()));
+                        } else {
+                            chatMessageMapper.deleteById(assistantMessage.getId());
+                        }
+                    });
+                })
+                .doOnCancel(() -> {
+                    log.info("[sendXiaomiMiMoMultimodalStream][userId({}) sendReqVO({}) 取消请求]", userId, sendReqVO);
+                    TenantUtils.executeIgnore(() -> {
+                        if (StrUtil.isNotEmpty(contentBuffer)) {
+                            chatMessageMapper.updateById(new AiChatMessageDO().setId(assistantMessage.getId())
+                                    .setContent(contentBuffer.toString())
+                                    .setReasoningContent(reasoningContentBuffer.toString()));
+                        } else {
+                            chatMessageMapper.deleteById(assistantMessage.getId());
+                        }
+                    });
+                })
+                .onErrorResume(error -> Flux.just(error(ErrorCodeConstants.CHAT_STREAM_ERROR)));
+    }
+
+    private List<AiChatMessageRespVO.KnowledgeSegment> buildKnowledgeSegments(
+            List<AiKnowledgeSegmentSearchRespBO> knowledgeSegments) {
+        Map<Long, AiKnowledgeDocumentDO> documentMap = TenantUtils.executeIgnore(() ->
+                knowledgeDocumentService.getKnowledgeDocumentMap(
+                        convertSet(knowledgeSegments, AiKnowledgeSegmentSearchRespBO::getDocumentId)));
+        return BeanUtils.toBean(knowledgeSegments, AiChatMessageRespVO.KnowledgeSegment.class, segment -> {
+            AiKnowledgeDocumentDO document = documentMap.get(segment.getDocumentId());
+            segment.setDocumentName(document != null ? document.getName() : null);
+        });
     }
 
     private List<AiKnowledgeSegmentSearchRespBO> recallKnowledgeSegment(String content,
             AiChatConversationDO conversation) {
         // 1. 查询聊天角色
-        if (conversation == null || conversation.getRoleId() == null) {
+        if (conversation == null) {
             return Collections.emptyList();
         }
-        AiChatRoleDO role = chatRoleService.getChatRole(conversation.getRoleId());
-        if (role == null || CollUtil.isEmpty(role.getKnowledgeIds())) {
+        AiChatRoleDO role = conversation.getRoleId() != null ? chatRoleService.getChatRole(conversation.getRoleId()) : null;
+        Set<Long> knowledgeIds = new LinkedHashSet<>();
+        if (role != null && CollUtil.isNotEmpty(role.getKnowledgeIds())) {
+            knowledgeIds.addAll(role.getKnowledgeIds());
+        }
+        if (conversation.getKnowledgeId() != null) {
+            knowledgeIds.add(conversation.getKnowledgeId());
+        }
+        if (CollUtil.isEmpty(knowledgeIds)) {
             return Collections.emptyList();
         }
 
         // 2. 遍历召回
         List<AiKnowledgeSegmentSearchRespBO> knowledgeSegments = new ArrayList<>();
-        for (Long knowledgeId : role.getKnowledgeIds()) {
+        for (Long knowledgeId : knowledgeIds) {
             knowledgeSegments.addAll(knowledgeSegmentService.searchKnowledgeSegment(new AiKnowledgeSegmentSearchReqBO()
                     .setKnowledgeId(knowledgeId).setContent(content)));
         }
         return knowledgeSegments;
+    }
+
+    private AiWebSearchResponse searchWeb(AiChatMessageSendReqVO sendReqVO) {
+        if (!Boolean.TRUE.equals(sendReqVO.getUseSearch())) {
+            return null;
+        }
+        if (webSearchClient == null) {
+            throw exception(CHAT_WEB_SEARCH_NOT_ENABLE);
+        }
+        return webSearchClient.search(new AiWebSearchRequest().setQuery(sendReqVO.getContent())
+                .setSummary(true).setCount(WEB_SEARCH_COUNT));
     }
 
     private Prompt buildPrompt(AiChatConversationDO conversation, List<AiChatMessageDO> messages,
@@ -336,15 +460,16 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         List<AiChatMessageDO> contextMessages = filterContextMessages(messages, conversation, sendReqVO);
         contextMessages.forEach(message -> {
             chatMessages.add(AiUtils.buildMessage(message.getType(), message.getContent()));
-            UserMessage attachmentUserMessage = buildAttachmentUserMessage(message.getAttachmentUrls());
+            UserMessage attachmentUserMessage = buildAttachmentUserMessage(message.getAttachmentUrls(), false);
             if (attachmentUserMessage != null) {
                 chatMessages.add(attachmentUserMessage);
             }
             // TODO @芋艿：历史的知识库；历史的搜索，要不要拼接？
         });
 
+        AiPlatformEnum platform = AiPlatformEnum.validatePlatform(model.getPlatform());
         // 1.3 当前 user message 新发送消息
-        chatMessages.add(new UserMessage(sendReqVO.getContent()));
+        chatMessages.add(buildCurrentUserMessage(sendReqVO, platform, model.getModel()));
 
         // 1.4 知识库，通过 UserMessage 实现
         if (CollUtil.isNotEmpty(knowledgeSegments)) {
@@ -369,7 +494,7 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
 
         // 1.6 附件，通过 UserMessage 实现
         if (CollUtil.isNotEmpty(sendReqVO.getAttachmentUrls())) {
-            UserMessage attachmentUserMessage = buildAttachmentUserMessage(sendReqVO.getAttachmentUrls());
+            UserMessage attachmentUserMessage = buildAttachmentUserMessage(sendReqVO.getAttachmentUrls(), true);
             if (attachmentUserMessage != null) {
                 chatMessages.add(attachmentUserMessage);
             }
@@ -380,11 +505,35 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         Map<String,Object> toolContext = CollUtil.isNotEmpty(toolCallbacks) ? AiUtils.buildCommonToolContext()
                 : Map.of();
         // 2.2 构建 ChatOptions 对象
-        AiPlatformEnum platform = AiPlatformEnum.validatePlatform(model.getPlatform());
         ChatOptions chatOptions = AiUtils.buildChatOptions(platform, model.getModel(),
                 conversation.getTemperature(), conversation.getMaxTokens(),
                 toolCallbacks, toolContext);
         return new Prompt(chatMessages, chatOptions);
+    }
+
+    private UserMessage buildCurrentUserMessage(AiChatMessageSendReqVO sendReqVO, AiPlatformEnum platform,
+            String model) {
+        if (hasAudioAttachments(sendReqVO.getAttachmentUrls()) && !AiUtils.supportAudioInput(platform, model)) {
+            throw exception(CHAT_MODEL_NOT_SUPPORT_AUDIO);
+        }
+        if (hasVideoAttachments(sendReqVO.getAttachmentUrls()) && !AiUtils.supportVideoInput(platform, model)) {
+            throw exception(CHAT_MODEL_NOT_SUPPORT_VIDEO);
+        }
+        List<Media> imageMedias = buildImageMedias(sendReqVO.getAttachmentUrls());
+        if (CollUtil.isEmpty(imageMedias)) {
+            return UserMessage.builder()
+                    .text(sendReqVO.getContent())
+                    .metadata(Map.of(XiaomiMiMoMultimodalChatClient.CURRENT_USER_MESSAGE_METADATA_KEY, true))
+                    .build();
+        }
+        if (!AiUtils.supportImageInput(platform, model)) {
+            throw exception(CHAT_MODEL_NOT_SUPPORT_IMAGE);
+        }
+        return UserMessage.builder()
+                .text(sendReqVO.getContent())
+                .media(imageMedias)
+                .metadata(Map.of(XiaomiMiMoMultimodalChatClient.CURRENT_USER_MESSAGE_METADATA_KEY, true))
+                .build();
     }
 
     private List<ToolCallback> getToolCallbackListByRoleId(Long roleId) {
@@ -398,27 +547,40 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         List<ToolCallback> toolCallbacks = new ArrayList<>();
         // 1. 通过 toolIds
         if (CollUtil.isNotEmpty(chatRole.getToolIds())) {
-            Set<String> toolNames = convertSet(toolService.getToolList(chatRole.getToolIds()), AiToolDO::getName);
-            toolNames.forEach(toolName -> {
-                ToolCallback toolCallback = toolCallbackResolver.resolve(toolName);
-                if (toolCallback != null) {
-                    toolCallbacks.add(toolCallback);
+            List<AiToolDO> tools = toolService.getToolList(chatRole.getToolIds());
+            tools.forEach(tool -> {
+                if (CommonStatusEnum.isDisable(tool.getStatus())) {
+                    throw exception(TOOL_DISABLE, tool.getName());
                 }
+                String toolName = tool.getName();
+                ToolCallback toolCallback = toolCallbackResolver.resolve(toolName);
+                if (toolCallback == null) {
+                    throw exception(TOOL_NAME_NOT_EXISTS, toolName);
+                }
+                toolCallbacks.add(toolCallback);
             });
         }
         // 2. 通过 mcpClients
-        if (CollUtil.isNotEmpty(mcpClients) && CollUtil.isNotEmpty(chatRole.getMcpClientNames())) {
+        if (CollUtil.isNotEmpty(chatRole.getMcpClientNames())) {
+            if (mcpClientCommonProperties == null || CollUtil.isEmpty(mcpClients)) {
+                throw exception(CHAT_MCP_NOT_ENABLE);
+            }
             chatRole.getMcpClientNames().forEach(mcpClientName -> {
                 // 2.1 标准化名字，参考 McpClientAutoConfiguration 的 connectedClientName 方法
                 String finalMcpClientName = mcpClientCommonProperties.getName() + " - " + mcpClientName;
                 // 2.2 匹配对应的 McpSyncClient
+                boolean[] found = new boolean[]{false};
                 mcpClients.forEach(mcpClient -> {
                     if (ObjUtil.notEqual(mcpClient.getClientInfo().name(), finalMcpClientName)) {
                         return;
                     }
+                    found[0] = true;
                     ToolCallback[] mcpToolCallBacks = new SyncMcpToolCallbackProvider(mcpClient).getToolCallbacks();
                     CollUtil.addAll(toolCallbacks, mcpToolCallBacks);
                 });
+                if (!found[0]) {
+                    throw exception(CHAT_MCP_CLIENT_NOT_EXISTS, mcpClientName);
+                }
             });
         }
         return toolCallbacks;
@@ -464,7 +626,7 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         return contextMessages;
     }
 
-    private UserMessage buildAttachmentUserMessage(List<String> attachmentUrls) {
+    private UserMessage buildAttachmentUserMessage(List<String> attachmentUrls, boolean skipImages) {
         if (CollUtil.isEmpty(attachmentUrls)) {
             return null;
         }
@@ -474,11 +636,13 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
             try {
                 String name = FileNameUtil.getName(attachmentUrl);
                 String mineType = FileTypeUtils.getMineType(name);
+                if ((skipImages && FileTypeUtils.isImage(mineType))
+                        || FileTypeUtils.isAudio(mineType) || FileTypeUtils.isVideo(mineType)) {
+                    continue;
+                }
                 String content;
                 if (FileTypeUtils.isImage(mineType)) {
-                    // 特殊：图片则转为 Base64
-                    byte[] bytes = HttpUtil.downloadBytes(attachmentUrl);
-                    content = Base64.encode(bytes);
+                    content = attachmentUrl;
                 } else {
                     content = knowledgeDocumentService.readUrl(attachmentUrl);
                 }
@@ -498,6 +662,48 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
                 .map(entry -> "<Attachment name=\"" + entry.getKey() + "\">" + entry.getValue() + "</Attachment>")
                 .collect(Collectors.joining("\n\n"));
         return new UserMessage(String.format(Attachment_USER_MESSAGE_TEMPLATE, attachment));
+    }
+
+    private boolean hasAudioAttachments(List<String> attachmentUrls) {
+        return CollUtil.isNotEmpty(attachmentUrls) && attachmentUrls.stream()
+                .map(FileNameUtil::getName)
+                .map(FileTypeUtils::getMineType)
+                .anyMatch(FileTypeUtils::isAudio);
+    }
+
+    private boolean hasVideoAttachments(List<String> attachmentUrls) {
+        return CollUtil.isNotEmpty(attachmentUrls) && attachmentUrls.stream()
+                .map(FileNameUtil::getName)
+                .map(FileTypeUtils::getMineType)
+                .anyMatch(FileTypeUtils::isVideo);
+    }
+
+    private List<Media> buildImageMedias(List<String> attachmentUrls) {
+        if (CollUtil.isEmpty(attachmentUrls)) {
+            return Collections.emptyList();
+        }
+        List<Media> imageMedias = new ArrayList<>();
+        for (String attachmentUrl : attachmentUrls) {
+            String name = FileNameUtil.getName(attachmentUrl);
+            String mineType = FileTypeUtils.getMineType(name);
+            if (!FileTypeUtils.isImage(mineType)) {
+                continue;
+            }
+            if (imageMedias.size() >= MAX_IMAGE_ATTACHMENT_COUNT) {
+                break;
+            }
+            try {
+                imageMedias.add(Media.builder()
+                        .mimeType(MimeTypeUtils.parseMimeType(mineType))
+                        .data(remoteResourceService.download(attachmentUrl, MAX_IMAGE_ATTACHMENT_BYTES))
+                        .name(name)
+                        .build());
+            } catch (Exception e) {
+                log.warn("[buildImageMedias][构建图片附件({}) 发生异常]", attachmentUrl, e);
+                throw exception(CHAT_IMAGE_DOWNLOAD_FAIL, e.getMessage());
+            }
+        }
+        return imageMedias;
     }
 
     private AiChatMessageDO createChatMessage(Long conversationId, Long replyId,

@@ -3,16 +3,21 @@ package cn.iocoder.yudao.module.ai.service.media;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.extra.spring.SpringUtil;
+import cn.hutool.json.JSONUtil;
+import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.ai.controller.admin.media.vo.AiMediaTaskCreateReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.media.vo.AiMediaTaskPageReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.media.vo.AiMediaTtsCreateReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.media.AiMediaTaskDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.media.AiVoiceProfileDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.media.AiMediaTaskMapper;
+import cn.iocoder.yudao.module.ai.dal.mysql.media.AiVoiceProfileMapper;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskStatusEnum;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskTypeEnum;
+import cn.iocoder.yudao.module.ai.enums.media.AiVoiceProfileSourceTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderAdapter;
@@ -24,6 +29,8 @@ import cn.iocoder.yudao.module.ai.service.model.AiModelService;
 import cn.iocoder.yudao.module.infra.api.file.FileApi;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -49,6 +56,8 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService {
     @Resource
     private AiMediaTaskMapper mediaTaskMapper;
     @Resource
+    private AiVoiceProfileMapper voiceProfileMapper;
+    @Resource
     private AiModelService modelService;
     @Resource
     private AiMediaProviderAdapterResolver providerAdapterResolver;
@@ -59,33 +68,52 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService {
     private Boolean ttsEnable;
     @Value("${yudao.ai.media.tts.user-daily-limit:100}")
     private Integer ttsUserDailyLimit;
+    @Value("${yudao.ai.media.tts.quota-lock-strict:true}")
+    private Boolean ttsQuotaLockStrict;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createTtsTask(Long userId, AiMediaTtsCreateReqVO reqVO) {
         validateTtsEnabled(userId);
-        AiModelDO model = validateTtsModel(reqVO.getModelId());
+        RLock lock = tryLockTtsQuota(userId);
+        boolean unlockRegistered = false;
+        try {
+            validateTtsQuota(userId);
+            reqVO = applyVoiceProfile(userId, reqVO);
+            validateTtsCreateReqVO(reqVO);
+            AiVoiceProfileSourceTypeEnum voiceMode = parseVoiceMode(reqVO.getVoiceMode());
+            AiModelDO model = validateTtsModel(reqVO.getModelId(), voiceMode);
 
-        AiMediaTaskDO task = new AiMediaTaskDO()
-                .setUserId(userId)
-                .setTaskType(AiMediaTaskTypeEnum.TTS.getType())
-                .setPlatform(model.getPlatform())
-                .setModelId(model.getId())
-                .setModel(model.getModel())
-                .setStatus(AiMediaTaskStatusEnum.CREATED.getStatus())
-                .setProgress(0)
-                .setStage("created")
-                .setInputJson(buildTtsInput(reqVO));
-        mediaTaskMapper.insert(task);
+            AiMediaTaskDO task = new AiMediaTaskDO()
+                    .setUserId(userId)
+                    .setTaskType(AiMediaTaskTypeEnum.TTS.getType())
+                    .setPlatform(model.getPlatform())
+                    .setModelId(model.getId())
+                    .setModel(model.getModel())
+                    .setStatus(AiMediaTaskStatusEnum.CREATED.getStatus())
+                    .setProgress(0)
+                    .setStage("created")
+                    .setInputJson(buildTtsInput(reqVO))
+                    .setSourceFileIds(buildTtsSourceFileIds(reqVO, voiceMode));
+            mediaTaskMapper.insert(task);
 
-        scheduleTtsTask(task);
-        return task.getId();
+            scheduleTtsTask(task);
+            unlockTtsQuotaAfterTransaction(lock);
+            unlockRegistered = true;
+            return task.getId();
+        } finally {
+            if (!unlockRegistered) {
+                unlockQuietly(lock);
+            }
+        }
     }
 
     @Override
     public Long createTask(Long userId, AiMediaTaskCreateReqVO reqVO) {
-        if (!AiMediaTaskTypeEnum.TTS.getType().equals(reqVO.getTaskType())) {
-            throw exception(MEDIA_TASK_TYPE_NOT_ENABLE, reqVO.getTaskType());
+        if (AiMediaTaskTypeEnum.TTS.getType().equals(reqVO.getTaskType())) {
+            AiMediaTtsCreateReqVO ttsReqVO = JSONUtil.toBean(JSONUtil.toJsonStr(reqVO.getInputJson()),
+                    AiMediaTtsCreateReqVO.class);
+            return createTtsTask(userId, ttsReqVO);
         }
         throw exception(MEDIA_TASK_TYPE_NOT_ENABLE, reqVO.getTaskType());
     }
@@ -216,6 +244,9 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService {
         if (!Boolean.TRUE.equals(ttsEnable)) {
             throw exception(MEDIA_TTS_DISABLED);
         }
+    }
+
+    private void validateTtsQuota(Long userId) {
         if (ttsUserDailyLimit == null || ttsUserDailyLimit <= 0) {
             return;
         }
@@ -227,23 +258,150 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService {
         }
     }
 
-    private AiModelDO validateTtsModel(Long modelId) {
+    private RLock tryLockTtsQuota(Long userId) {
+        if (ttsUserDailyLimit == null || ttsUserDailyLimit <= 0) {
+            return null;
+        }
+        try {
+            String lockKey = StrUtil.format("ai:media:tts-quota:{}:{}", userId, LocalDate.now());
+            RLock lock = SpringUtil.getBean(RedissonClient.class).getLock(lockKey);
+            lock.lock();
+            return lock;
+        } catch (Exception e) {
+            log.warn("[tryLockTtsQuota][userId({}) 获取 TTS 配额锁失败]", userId, e);
+            if (Boolean.TRUE.equals(ttsQuotaLockStrict)) {
+                throw exception(MEDIA_TTS_QUOTA_LOCK_FAIL);
+            }
+            return null;
+        }
+    }
+
+    private void unlockTtsQuotaAfterTransaction(RLock lock) {
+        if (lock == null) {
+            return;
+        }
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            unlockQuietly(lock);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+
+            @Override
+            public void afterCompletion(int status) {
+                unlockQuietly(lock);
+            }
+
+        });
+    }
+
+    private void unlockQuietly(RLock lock) {
+        if (lock == null || !lock.isHeldByCurrentThread()) {
+            return;
+        }
+        try {
+            lock.unlock();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void validateTtsCreateReqVO(AiMediaTtsCreateReqVO reqVO) {
+        if (reqVO == null || StrUtil.isBlank(reqVO.getText())) {
+            throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "TTS 合成文本不能为空");
+        }
+        if (StrUtil.isBlank(reqVO.getFormat())) {
+            throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "TTS 音频格式不能为空");
+        }
+        AiVoiceProfileSourceTypeEnum voiceMode = parseVoiceMode(reqVO.getVoiceMode());
+        switch (voiceMode) {
+            case BUILTIN -> {
+                if (StrUtil.isBlank(reqVO.getVoice())) {
+                    throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "TTS 预置音色不能为空");
+                }
+            }
+            case DESIGN -> {
+                if (StrUtil.isBlank(reqVO.getDesignPrompt())) {
+                    throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "文字设计音色描述不能为空");
+                }
+            }
+            case CLONE -> {
+                if (!Boolean.TRUE.equals(reqVO.getConsentConfirmed())) {
+                    throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "音色克隆必须确认已获得声音授权");
+                }
+                if (StrUtil.isBlank(reqVO.getSampleFileUrl())) {
+                    throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "音色克隆样本不能为空");
+                }
+            }
+        }
+    }
+
+    private AiModelDO validateTtsModel(Long modelId, AiVoiceProfileSourceTypeEnum voiceMode) {
         AiModelDO model = modelId != null ? modelService.validateModel(modelId)
                 : modelService.getRequiredDefaultModel(AiModelTypeEnum.VOICE.getType());
         if (!AiModelTypeEnum.VOICE.getType().equals(model.getType())) {
             throw exception(MODEL_USE_TYPE_ERROR);
         }
-        if (!AiPlatformEnum.XIAOMI_MIMO.getPlatform().equals(model.getPlatform())
-                || !XiaomiMiMoTtsProviderAdapter.MODEL.equals(model.getModel())) {
-            throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "请配置 XiaomiMiMo / mimo-v2.5-tts 语音模型");
+        if (!AiPlatformEnum.XIAOMI_MIMO.getPlatform().equals(model.getPlatform())) {
+            throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "请配置 XiaomiMiMo 语音模型");
+        }
+        boolean matches = switch (voiceMode) {
+            case BUILTIN -> XiaomiMiMoTtsProviderAdapter.MODEL_TTS.equals(model.getModel());
+            case CLONE -> XiaomiMiMoTtsProviderAdapter.MODEL_VOICE_CLONE.equals(model.getModel());
+            case DESIGN -> XiaomiMiMoTtsProviderAdapter.MODEL_VOICE_DESIGN.equals(model.getModel());
+        };
+        if (!matches) {
+            throw exception(MEDIA_PROVIDER_CONFIG_MISSING,
+                    StrUtil.format("{} 模式需要配置对应的小米语音模型，当前模型({})不匹配", voiceMode.getName(), model.getModel()));
         }
         return model;
+    }
+
+    private AiMediaTtsCreateReqVO applyVoiceProfile(Long userId, AiMediaTtsCreateReqVO reqVO) {
+        if (reqVO.getVoiceProfileId() == null) {
+            if (StrUtil.isBlank(reqVO.getVoiceMode())) {
+                reqVO.setVoiceMode(AiVoiceProfileSourceTypeEnum.BUILTIN.getType());
+            }
+            return reqVO;
+        }
+        AiVoiceProfileDO profile = voiceProfileMapper.selectById(reqVO.getVoiceProfileId());
+        if (profile == null || ObjUtil.notEqual(profile.getUserId(), userId)) {
+            throw exception(VOICE_PROFILE_NOT_EXISTS);
+        }
+        if (CommonStatusEnum.isDisable(profile.getStatus())) {
+            throw exception(VOICE_PROFILE_DISABLE);
+        }
+        return reqVO
+                .setModelId(profile.getModelId())
+                .setVoiceMode(profile.getSourceType())
+                .setVoice(profile.getBuiltinVoice())
+                .setDesignPrompt(profile.getDesignPrompt())
+                .setSampleFileUrl(profile.getSampleFileUrl())
+                .setSampleMimeType(profile.getSampleMimeType())
+                .setSampleSize(profile.getSampleSize())
+                .setConsentConfirmed(profile.getConsentConfirmed());
     }
 
     private Map<String, Object> buildTtsInput(AiMediaTtsCreateReqVO reqVO) {
         Map<String, Object> input = BeanUtils.toBean(reqVO, LinkedHashMap.class);
         input.remove("modelId");
+        input.remove("sampleSize");
         return input;
+    }
+
+    private List<String> buildTtsSourceFileIds(AiMediaTtsCreateReqVO reqVO, AiVoiceProfileSourceTypeEnum voiceMode) {
+        if (voiceMode != AiVoiceProfileSourceTypeEnum.CLONE || StrUtil.isBlank(reqVO.getSampleFileUrl())) {
+            return null;
+        }
+        return List.of(reqVO.getSampleFileUrl());
+    }
+
+    private AiVoiceProfileSourceTypeEnum parseVoiceMode(String voiceMode) {
+        String type = StrUtil.blankToDefault(voiceMode, AiVoiceProfileSourceTypeEnum.BUILTIN.getType());
+        for (AiVoiceProfileSourceTypeEnum value : AiVoiceProfileSourceTypeEnum.values()) {
+            if (value.getType().equals(type)) {
+                return value;
+            }
+        }
+        throw exception(MEDIA_PROVIDER_CONFIG_MISSING, "未知 TTS 音色模式");
     }
 
     private AiMediaTaskDO validateTaskExists(Long id) {

@@ -8,7 +8,6 @@ import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.extra.spring.SpringUtil;
-import cn.hutool.http.HttpUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.ai.controller.admin.image.vo.AiImageDrawReqVO;
@@ -24,6 +23,7 @@ import cn.iocoder.yudao.module.ai.enums.image.AiImageStatusEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.midjourney.api.MidjourneyApi;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.siliconflow.SiliconFlowImageOptions;
+import cn.iocoder.yudao.module.ai.service.common.AiRemoteResourceService;
 import cn.iocoder.yudao.module.ai.service.model.AiModelService;
 import cn.iocoder.yudao.module.infra.api.file.FileApi;
 import com.alibaba.cloud.ai.dashscope.image.DashScopeImageOptions;
@@ -34,6 +34,7 @@ import org.springframework.ai.image.ImageModel;
 import org.springframework.ai.image.ImageOptions;
 import org.springframework.ai.image.ImagePrompt;
 import org.springframework.ai.image.ImageResponse;
+import org.springframework.ai.image.Image;
 import org.springframework.ai.openai.OpenAiImageOptions;
 import org.springframework.ai.stabilityai.api.StabilityAiImageOptions;
 import org.springframework.ai.zhipuai.ZhiPuAiImageOptions;
@@ -45,6 +46,7 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.util.collection.CollectionUtils.convertMap;
@@ -60,6 +62,8 @@ import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.*;
 @Slf4j
 public class AiImageServiceImpl implements AiImageService {
 
+    private static final long MAX_IMAGE_DOWNLOAD_BYTES = 20 * 1024 * 1024L;
+
     @Resource
     private AiModelService modelService;
 
@@ -68,6 +72,8 @@ public class AiImageServiceImpl implements AiImageService {
 
     @Resource
     private FileApi fileApi;
+    @Resource
+    private AiRemoteResourceService remoteResourceService;
 
     @Override
     public PageResult<AiImageDO> getImagePageMy(Long userId, AiImagePageReqVO pageReqVO) {
@@ -96,6 +102,7 @@ public class AiImageServiceImpl implements AiImageService {
     public Long drawImage(Long userId, AiImageDrawReqVO drawReqVO) {
         // 1. 校验模型
         AiModelDO model = modelService.validateModel(drawReqVO.getModelId());
+        modelService.getImageModel(model.getId());
 
         // 2. 保存数据库
         AiImageDO image = BeanUtils.toBean(drawReqVO, AiImageDO.class).setUserId(userId)
@@ -117,14 +124,22 @@ public class AiImageServiceImpl implements AiImageService {
             // 1.2 执行请求
             ImageModel imageModel = modelService.getImageModel(model.getId());
             ImageResponse response = imageModel.call(new ImagePrompt(reqVO.getPrompt(), request));
-            if (response.getResult() == null) {
-                throw new IllegalArgumentException("生成结果为空");
+            if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
+                throw exception(IMAGE_GENERATE_RESULT_EMPTY);
             }
 
             // 2. 上传到文件服务
-            String b64Json = response.getResult().getOutput().getB64Json();
+            Image output = response.getResult().getOutput();
+            String b64Json = output.getB64Json();
+            String imageUrl = output.getUrl();
+            if (StrUtil.isEmpty(b64Json) && StrUtil.isEmpty(imageUrl)) {
+                throw exception(IMAGE_GENERATE_RESULT_EMPTY);
+            }
             byte[] fileContent = StrUtil.isNotEmpty(b64Json) ? Base64.decode(b64Json)
-                    : HttpUtil.downloadBytes(response.getResult().getOutput().getUrl());
+                    : remoteResourceService.download(imageUrl, MAX_IMAGE_DOWNLOAD_BYTES);
+            if (fileContent.length == 0) {
+                throw exception(IMAGE_GENERATE_RESULT_EMPTY);
+            }
             String filePath = fileApi.createFile(fileContent);
 
             // 3. 更新数据库
@@ -134,7 +149,7 @@ public class AiImageServiceImpl implements AiImageService {
             log.error("[executeDrawImage][image({}) 生成异常]", image, ex);
             imageMapper.updateById(new AiImageDO().setId(image.getId())
                     .setStatus(AiImageStatusEnum.FAIL.getStatus())
-                    .setErrorMessage(ex.getMessage()).setFinishTime(LocalDateTime.now()));
+                    .setErrorMessage(StrUtil.maxLength(ex.getMessage(), 480)).setFinishTime(LocalDateTime.now()));
         }
     }
 
@@ -154,14 +169,15 @@ public class AiImageServiceImpl implements AiImageService {
         }  else if (ObjUtil.equal(model.getPlatform(), AiPlatformEnum.STABLE_DIFFUSION.getPlatform())) {
             // https://platform.stability.ai/docs/api-reference#tag/SDXL-and-SD1.6/operation/textToImage
             // https://platform.stability.ai/docs/api-reference#tag/Text-to-Image/operation/textToImage
+            Map<String, String> options = draw.getOptions();
             return StabilityAiImageOptions.builder().model(model.getModel())
                     .height(draw.getHeight()).width(draw.getWidth())
-                    .seed(Long.valueOf(draw.getOptions().get("seed")))
-                    .cfgScale(Float.valueOf(draw.getOptions().get("scale")))
-                    .steps(Integer.valueOf(draw.getOptions().get("steps")))
-                    .sampler(String.valueOf(draw.getOptions().get("sampler")))
-                    .stylePreset(String.valueOf(draw.getOptions().get("stylePreset")))
-                    .clipGuidancePreset(String.valueOf(draw.getOptions().get("clipGuidancePreset")))
+                    .seed(MapUtil.getLong(options, "seed", 42L))
+                    .cfgScale(MapUtil.getFloat(options, "scale", 7.5F))
+                    .steps(MapUtil.getInt(options, "steps", 20))
+                    .sampler(MapUtil.getStr(options, "sampler", "DDIM"))
+                    .stylePreset(MapUtil.getStr(options, "stylePreset", "3d-model"))
+                    .clipGuidancePreset(MapUtil.getStr(options, "clipGuidancePreset", "NONE"))
                     .build();
         } else if (ObjUtil.equal(model.getPlatform(), AiPlatformEnum.TONG_YI.getPlatform())) {
             return DashScopeImageOptions.builder()
@@ -239,7 +255,8 @@ public class AiImageServiceImpl implements AiImageService {
 
         // 3. 调用 Midjourney Proxy 提交任务
         List<String> base64Array = StrUtil.isBlank(drawReqVO.getReferImageUrl()) ? null :
-                Collections.singletonList("data:image/jpeg;base64,".concat(Base64.encode(HttpUtil.downloadBytes(drawReqVO.getReferImageUrl()))));
+                Collections.singletonList("data:image/jpeg;base64,".concat(Base64.encode(
+                        remoteResourceService.download(drawReqVO.getReferImageUrl(), MAX_IMAGE_DOWNLOAD_BYTES))));
         MidjourneyApi.ImagineRequest imagineRequest = new MidjourneyApi.ImagineRequest(
                 base64Array, drawReqVO.getPrompt(),null,
                 MidjourneyApi.ImagineRequest.buildState(drawReqVO.getWidth(),
@@ -267,21 +284,24 @@ public class AiImageServiceImpl implements AiImageService {
         if (CollUtil.isEmpty(images)) {
             return 0;
         }
-        // 1.2 调用 Midjourney Proxy 获取任务进展
-        MidjourneyApi midjourneyApi = modelService.getMidjourneyApi(images.get(0).getModelId());
-        List<MidjourneyApi.Notify> taskList = midjourneyApi.getTaskList(convertSet(images, AiImageDO::getTaskId));
-        Map<String, MidjourneyApi.Notify> taskMap = convertMap(taskList, MidjourneyApi.Notify::id);
-
-        // 2. 逐个处理，更新进展
+        // 1.2 按模型分组调用 Midjourney Proxy，避免多个模型配置串用同一个 API Key/地址
         int count = 0;
-        for (AiImageDO image : images) {
-            MidjourneyApi.Notify notify = taskMap.get(image.getTaskId());
-            if (notify == null) {
-                log.error("[midjourneySync][image({}) 查询不到进展]", image);
-                continue;
+        Map<Long, List<AiImageDO>> imageMap = images.stream().collect(Collectors.groupingBy(AiImageDO::getModelId));
+        for (Map.Entry<Long, List<AiImageDO>> entry : imageMap.entrySet()) {
+            MidjourneyApi midjourneyApi = modelService.getMidjourneyApi(entry.getKey());
+            List<MidjourneyApi.Notify> taskList = midjourneyApi.getTaskList(convertSet(entry.getValue(), AiImageDO::getTaskId));
+            Map<String, MidjourneyApi.Notify> taskMap = convertMap(taskList, MidjourneyApi.Notify::id);
+
+            // 2. 逐个处理，更新进展
+            for (AiImageDO image : entry.getValue()) {
+                MidjourneyApi.Notify notify = taskMap.get(image.getTaskId());
+                if (notify == null) {
+                    log.error("[midjourneySync][image({}) 查询不到进展]", image);
+                    continue;
+                }
+                count++;
+                updateMidjourneyStatus(image, notify);
             }
-            count++;
-            updateMidjourneyStatus(image, notify);
         }
         return count;
     }
@@ -317,7 +337,7 @@ public class AiImageServiceImpl implements AiImageService {
         String picUrl = null;
         if (StrUtil.isNotBlank(notify.imageUrl())) {
             try {
-                picUrl = fileApi.createFile(HttpUtil.downloadBytes(notify.imageUrl()));
+                picUrl = fileApi.createFile(remoteResourceService.download(notify.imageUrl(), MAX_IMAGE_DOWNLOAD_BYTES));
             } catch (Exception e) {
                 picUrl = notify.imageUrl();
                 log.warn("[updateMidjourneyStatus][图片({}) 地址({}) 上传失败]", image.getId(), notify.imageUrl(), e);
@@ -358,7 +378,7 @@ public class AiImageServiceImpl implements AiImageService {
         AiImageDO newImage = new AiImageDO().setUserId(image.getUserId()).setPublicStatus(false).setPrompt(image.getPrompt())
                 .setStatus(AiImageStatusEnum.IN_PROGRESS.getStatus())
                 .setPlatform(AiPlatformEnum.MIDJOURNEY.getPlatform())
-                .setModel(image.getModel()).setWidth(image.getWidth()).setHeight(image.getHeight())
+                .setModelId(image.getModelId()).setModel(image.getModel()).setWidth(image.getWidth()).setHeight(image.getHeight())
                 .setOptions(image.getOptions()).setTaskId(actionResponse.result());
         imageMapper.insert(newImage);
         return newImage.getId();

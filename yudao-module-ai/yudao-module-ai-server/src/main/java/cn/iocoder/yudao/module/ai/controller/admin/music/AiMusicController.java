@@ -6,6 +6,7 @@ import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.ai.controller.admin.music.vo.*;
 import cn.iocoder.yudao.module.ai.dal.dataobject.music.AiMusicDO;
+import cn.iocoder.yudao.module.ai.enums.music.AiMusicStatusEnum;
 import cn.iocoder.yudao.module.ai.service.music.AiMusicService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -32,7 +33,7 @@ public class AiMusicController {
     @Operation(summary = "获得【我的】音乐分页")
     public CommonResult<PageResult<AiMusicRespVO>> getMusicMyPage(@Valid AiMusicPageReqVO pageReqVO) {
         PageResult<AiMusicDO> pageResult = musicService.getMusicMyPage(pageReqVO, getLoginUserId());
-        return success(BeanUtils.toBean(pageResult, AiMusicRespVO.class));
+        return success(convertPage(pageResult));
     }
 
     @PostMapping("/generate")
@@ -57,7 +58,11 @@ public class AiMusicController {
         if (music == null || ObjUtil.notEqual(getLoginUserId(), music.getUserId())) {
             return success(null);
         }
-        return success(BeanUtils.toBean(music, AiMusicRespVO.class));
+        if (AiMusicStatusEnum.IN_PROGRESS.getStatus().equals(music.getStatus())) {
+            musicService.syncMusic();
+            music = musicService.getMusic(id);
+        }
+        return success(convert(music));
     }
 
     @PostMapping("/update-my")
@@ -75,7 +80,7 @@ public class AiMusicController {
     @PreAuthorize("@ss.hasPermission('ai:music:query')")
     public CommonResult<PageResult<AiMusicRespVO>> getMusicPage(@Valid AiMusicPageReqVO pageReqVO) {
         PageResult<AiMusicDO> pageResult = musicService.getMusicPage(pageReqVO);
-        return success(BeanUtils.toBean(pageResult, AiMusicRespVO.class));
+        return success(convertPage(pageResult));
     }
 
     @DeleteMapping("/delete")
@@ -93,6 +98,21 @@ public class AiMusicController {
     public CommonResult<Boolean> updateMusic(@Valid @RequestBody AiMusicUpdateReqVO updateReqVO) {
         musicService.updateMusic(updateReqVO);
         return success(true);
+    }
+
+    private static PageResult<AiMusicRespVO> convertPage(PageResult<AiMusicDO> pageResult) {
+        PageResult<AiMusicRespVO> result = BeanUtils.toBean(pageResult, AiMusicRespVO.class);
+        result.getList().forEach(AiMusicController::fillCompatFields);
+        return result;
+    }
+
+    private static AiMusicRespVO convert(AiMusicDO music) {
+        return fillCompatFields(BeanUtils.toBean(music, AiMusicRespVO.class));
+    }
+
+    private static AiMusicRespVO fillCompatFields(AiMusicRespVO music) {
+        music.setGptDescriptionPrompt(music.getDescription());
+        return music;
     }
 
 }

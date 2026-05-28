@@ -37,8 +37,11 @@ public interface AiMusicMapper extends BaseMapperX<AiMusicDO> {
                 // 情况一：公开
                 .eq(Boolean.TRUE.equals(reqVO.getPublicStatus()), AiMusicDO::getPublicStatus, reqVO.getPublicStatus())
                 // 情况二：私有
-                .eq(Boolean.FALSE.equals(reqVO.getPublicStatus()), AiMusicDO::getUserId, userId)
-                .orderByAsc(AiMusicDO::getId));
+                .eq(!Boolean.TRUE.equals(reqVO.getPublicStatus()), AiMusicDO::getUserId, userId)
+                .eqIfPresent(AiMusicDO::getStatus, reqVO.getStatus())
+                .eqIfPresent(AiMusicDO::getGenerateMode, reqVO.getGenerateMode())
+                .betweenIfPresent(AiMusicDO::getCreateTime, reqVO.getCreateTime())
+                .orderByDesc(AiMusicDO::getId));
     }
     
 }

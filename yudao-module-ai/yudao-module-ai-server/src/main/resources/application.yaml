@@ -173,6 +173,8 @@ spring:
 
 yudao:
   ai:
+    download:
+      allow-private-url: false # 默认禁止下载内网/本机资源，避免 SSRF；本地调试可在 application-local.yaml 放开
     gemini: # 谷歌 Gemini
       enable: true
       api-key: AIzaSyAVoBxgoFvvte820vEQMma2LKBnC98bqMQ
@@ -210,7 +212,7 @@ yudao:
       base-url: http://127.0.0.1:3001
     web-search:
       enable: true
-      api-key: sk-40500e52840f4d24b956d0b1d80d9abe
+      api-key: sk-6b97271426f143b7b99d88305d9faebd
 
 --- #################### 芋道相关配置 ####################
 

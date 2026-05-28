@@ -44,4 +44,11 @@ public interface AiChatMapper extends BaseMapperX<AiModelDO> {
                 .orderByAsc(AiModelDO::getSort));
     }
 
+    default List<AiModelDO> selectListByKeyIdAndStatus(Long keyId, Integer status) {
+        return selectList(new LambdaQueryWrapperX<AiModelDO>()
+                .eq(AiModelDO::getKeyId, keyId)
+                .eq(AiModelDO::getStatus, status)
+                .orderByAsc(AiModelDO::getSort));
+    }
+
 }

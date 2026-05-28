@@ -210,6 +210,12 @@ yudao:
     transfer-notify-url: http://yunai.natapp1.cc/admin-api/pay/notify/transfer # 支付渠道的【转账】回调地址
   access-log: # 访问日志的配置项
     enable: false
+  ai:
+    download:
+      allow-private-url: true # 本地调试 AI 图片/音频附件时，允许读取本机文件服务 URL
+    media:
+      tts:
+        quota-lock-strict: false # 本地/单测无 Redisson 时允许降级为 count 校验；生产建议保持默认 true
   demo: false # 关闭演示模式
   wxa-code:
     env-version: develop # 小程序版本: 正式版为 "release"；体验版为 "trial"；开发版为 "develop"

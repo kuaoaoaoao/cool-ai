@@ -77,4 +77,12 @@ public interface AiApiKeyService {
      */
     AiApiKeyDO getRequiredDefaultApiKey(String platform, Integer status);
 
+    /**
+     * 获得 API 密钥缓存版本，用于 AI 客户端缓存失效。
+     *
+     * @param id 编号
+     * @return 缓存版本
+     */
+    String getApiKeyCacheVersion(Long id);
+
 }

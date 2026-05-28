@@ -35,6 +35,9 @@ public class AiMusicRespVO {
     private Integer status;
 
     @Schema(description = "描述词", example = "一首轻快的歌曲")
+    private String description;
+
+    @Schema(description = "描述词，兼容旧前端字段", example = "一首轻快的歌曲")
     private String gptDescriptionPrompt;
 
     @Schema(description = "提示词", example = "创作一首带有轻松吉他旋律的流行歌曲，[verse] 描述夏日海滩的宁静，[chorus] 节奏加快，表达对自由的向往。")
@@ -42,6 +45,9 @@ public class AiMusicRespVO {
 
     @Schema(description = "模型平台", requiredMode = Schema.RequiredMode.REQUIRED, example = "Suno")
     private String platform;
+
+    @Schema(description = "模型编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
+    private Long modelId;
 
     @Schema(description = "模型", requiredMode = Schema.RequiredMode.REQUIRED, example = "chirp-v3.5")
     private String model;

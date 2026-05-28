@@ -35,10 +35,13 @@ public interface AiImageMapper extends BaseMapperX<AiImageDO> {
     default PageResult<AiImageDO> selectPageMy(Long userId, AiImagePageReqVO reqVO) {
         return selectPage(reqVO, new LambdaQueryWrapperX<AiImageDO>()
                 .likeIfPresent(AiImageDO::getPrompt, reqVO.getPrompt())
+                .eqIfPresent(AiImageDO::getPlatform, reqVO.getPlatform())
+                .eqIfPresent(AiImageDO::getStatus, reqVO.getStatus())
+                .betweenIfPresent(AiImageDO::getCreateTime, reqVO.getCreateTime())
                 // 情况一：公开
                 .eq(Boolean.TRUE.equals(reqVO.getPublicStatus()), AiImageDO::getPublicStatus, reqVO.getPublicStatus())
                 // 情况二：私有
-                .eq(Boolean.FALSE.equals(reqVO.getPublicStatus()), AiImageDO::getUserId, userId)
+                .eq(!Boolean.TRUE.equals(reqVO.getPublicStatus()), AiImageDO::getUserId, userId)
                 .orderByDesc(AiImageDO::getId));
     }
 

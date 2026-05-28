@@ -6,7 +6,9 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.media.AiMediaTaskDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiApiKeyDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskTypeEnum;
+import cn.iocoder.yudao.module.ai.enums.media.AiVoiceProfileSourceTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
+import cn.iocoder.yudao.module.ai.service.common.AiRemoteResourceService;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderException;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderResult;
 import cn.iocoder.yudao.module.ai.service.model.AiApiKeyService;
@@ -27,6 +29,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 class XiaomiMiMoTtsProviderAdapterTest extends BaseMockitoUnitTest {
@@ -38,6 +41,8 @@ class XiaomiMiMoTtsProviderAdapterTest extends BaseMockitoUnitTest {
     private AiModelService modelService;
     @Mock
     private AiApiKeyService apiKeyService;
+    @Mock
+    private AiRemoteResourceService remoteResourceService;
 
     private HttpServer server;
 
@@ -85,6 +90,69 @@ class XiaomiMiMoTtsProviderAdapterTest extends BaseMockitoUnitTest {
         assertTrue(requestBody.get().contains("\"role\":\"user\""));
         assertArrayEquals("audio".getBytes(StandardCharsets.UTF_8), result.getContent());
         assertEquals("audio/mpeg", result.getMimeType());
+    }
+
+    @Test
+    void execute_cloneVoice_buildsDataUri() throws IOException {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = """
+                    {"choices":[{"message":{"audio":{"data":"YXVkaW8="}}}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        String sampleUrl = "http://file.local/sample.wav";
+        when(remoteResourceService.download(eq(sampleUrl), eq(7_500_000L))).thenReturn("sample".getBytes(StandardCharsets.UTF_8));
+        AiMediaTaskDO task = buildTask("http://127.0.0.1:" + server.getAddress().getPort())
+                .setModel(XiaomiMiMoTtsProviderAdapter.MODEL_VOICE_CLONE)
+                .setInputJson(Map.of(
+                        "text", "hello",
+                        "voiceMode", AiVoiceProfileSourceTypeEnum.CLONE.getType(),
+                        "sampleFileUrl", sampleUrl,
+                        "sampleMimeType", "audio/wav",
+                        "format", "wav"));
+
+        AiMediaProviderResult result = adapter.execute(task);
+
+        assertTrue(requestBody.get().contains("\"model\":\"mimo-v2.5-tts-voiceclone\""));
+        assertTrue(requestBody.get().contains("data:audio/wav;base64,c2FtcGxl"));
+        assertEquals("audio/wav", result.getMimeType());
+    }
+
+    @Test
+    void execute_designVoice_buildsPreviewRequest() throws IOException {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] response = """
+                    {"choices":[{"message":{"audio":{"data":"YXVkaW8="}}}]}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        AiMediaTaskDO task = buildTask("http://127.0.0.1:" + server.getAddress().getPort())
+                .setModel(XiaomiMiMoTtsProviderAdapter.MODEL_VOICE_DESIGN)
+                .setInputJson(Map.of(
+                        "text", "hello",
+                        "voiceMode", AiVoiceProfileSourceTypeEnum.DESIGN.getType(),
+                        "designPrompt", "年轻男性，声音清亮",
+                        "format", "mp3"));
+
+        adapter.execute(task);
+
+        assertTrue(requestBody.get().contains("\"model\":\"mimo-v2.5-tts-voicedesign\""));
+        assertTrue(requestBody.get().contains("\"content\":\"年轻男性，声音清亮\""));
+        assertTrue(requestBody.get().contains("\"optimize_text_preview\":true"));
     }
 
     @Test

@@ -11,6 +11,7 @@ import cn.iocoder.yudao.module.ai.controller.admin.model.vo.chatRole.AiChatRoleS
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.chatRole.AiChatRoleSaveReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiChatRoleDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.model.AiChatRoleMapper;
+import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import cn.iocoder.yudao.module.ai.service.knowledge.AiKnowledgeService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -41,9 +42,13 @@ public class AiChatRoleServiceImpl implements AiChatRoleService {
     private AiKnowledgeService knowledgeService;
     @Resource
     private AiToolService toolService;
+    @Resource
+    private AiModelService modelService;
 
     @Override
     public Long createChatRole(AiChatRoleSaveReqVO createReqVO) {
+        // 校验模型
+        validateModel(createReqVO.getModelId());
         // 校验文档
         validateDocuments(createReqVO.getKnowledgeIds());
         // 校验工具
@@ -73,6 +78,8 @@ public class AiChatRoleServiceImpl implements AiChatRoleService {
     public void updateChatRole(AiChatRoleSaveReqVO updateReqVO) {
         // 校验存在
         validateChatRoleExists(updateReqVO.getId());
+        // 校验模型
+        validateModel(updateReqVO.getModelId());
         // 校验文档
         validateDocuments(updateReqVO.getKnowledgeIds());
         // 校验工具
@@ -100,6 +107,13 @@ public class AiChatRoleServiceImpl implements AiChatRoleService {
         chatRoleMapper.updateById(updateObj);
     }
 
+    private void validateModel(Long modelId) {
+        if (modelId == null) {
+            return;
+        }
+        modelService.validateModel(modelId, AiModelTypeEnum.CHAT);
+    }
+
     /**
      * 校验知识库是否存在
      *
@@ -109,8 +123,8 @@ public class AiChatRoleServiceImpl implements AiChatRoleService {
         if (CollUtil.isEmpty(knowledgeIds)) {
             return;
         }
-        // 校验文档是否存在
-        knowledgeIds.forEach(knowledgeService::validateKnowledgeExists);
+        // 校验文档是否可用
+        knowledgeIds.forEach(knowledgeService::validateKnowledgeEnabled);
     }
 
     /**

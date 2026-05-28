@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Schema(description = "管理后台 - AI 模型 Response VO")
 @Data
@@ -41,6 +42,18 @@ public class AiModelRespVO {
 
     @Schema(description = "上下文的最大 Message 数量", example = "8192")
     private Integer maxContexts;
+
+    @Schema(description = "能力标签", example = "[\"chat\", \"vision\", \"stream\"]")
+    private List<String> capabilities;
+
+    @Schema(description = "输入模态", example = "[\"text\", \"image\"]")
+    private List<String> inputModalities;
+
+    @Schema(description = "输出模态", example = "[\"text\"]")
+    private List<String> outputModalities;
+
+    @Schema(description = "配置提示")
+    private List<String> configTips;
 
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDateTime createTime;

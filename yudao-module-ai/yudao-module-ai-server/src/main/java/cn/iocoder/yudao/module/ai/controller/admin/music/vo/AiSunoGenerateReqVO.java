@@ -16,6 +16,9 @@ public class AiSunoGenerateReqVO {
     @NotBlank(message = "平台不能为空")
     private String platform; // 参见 AiPlatformEnum 枚举
 
+    @Schema(description = "模型编号", example = "1024")
+    private Long modelId;
+
     /**
      * 1. 描述模式：描述词 + 是否纯音乐 + 模型
      * 2. 歌词模式：歌词 + 音乐风格 + 标题 + 模型
@@ -53,5 +56,17 @@ public class AiSunoGenerateReqVO {
 
     @Schema(description = "音乐/歌曲名称", example = "夜空中最亮的星")
     private String title;
+
+    @Schema(description = "唱歌/语音风格提示", example = "请以 pop 风格演唱")
+    private String stylePrompt;
+
+    @Schema(description = "音色来源类型", example = "BUILTIN")
+    private String voiceMode;
+
+    @Schema(description = "音色", example = "mimo_default")
+    private String voice;
+
+    @Schema(description = "音频格式", example = "wav")
+    private String format;
 
 }

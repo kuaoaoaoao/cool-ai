@@ -30,6 +30,21 @@ public interface AiModelFactory {
     ChatModel getOrCreateChatModel(AiPlatformEnum platform, String apiKey, String url);
 
     /**
+     * 基于指定配置，获得 ChatModel 对象
+     *
+     * @param platform 平台
+     * @param keyId API Key 编号
+     * @param keyVersion API Key 缓存版本
+     * @param apiKey API KEY
+     * @param url API URL
+     * @return ChatModel 对象
+     */
+    default ChatModel getOrCreateChatModel(AiPlatformEnum platform, Long keyId, String keyVersion,
+                                           String apiKey, String url) {
+        return getOrCreateChatModel(platform, apiKey, url);
+    }
+
+    /**
      * 基于默认配置，获得 ChatModel 对象
      *
      * 默认配置，指的是在 application.yaml 配置文件中的 spring.ai 相关的配置
@@ -61,6 +76,11 @@ public interface AiModelFactory {
      */
     ImageModel getOrCreateImageModel(AiPlatformEnum platform, String apiKey, String url);
 
+    default ImageModel getOrCreateImageModel(AiPlatformEnum platform, Long keyId, String keyVersion,
+                                             String apiKey, String url) {
+        return getOrCreateImageModel(platform, apiKey, url);
+    }
+
     /**
      * 基于指定配置，获得 MidjourneyApi 对象
      *
@@ -72,6 +92,10 @@ public interface AiModelFactory {
      */
     MidjourneyApi getOrCreateMidjourneyApi(String apiKey, String url);
 
+    default MidjourneyApi getOrCreateMidjourneyApi(Long keyId, String keyVersion, String apiKey, String url) {
+        return getOrCreateMidjourneyApi(apiKey, url);
+    }
+
     /**
      * 基于指定配置，获得 SunoApi 对象
      *
@@ -82,6 +106,10 @@ public interface AiModelFactory {
      * @return SunoApi 对象
      */
     SunoApi getOrCreateSunoApi(String apiKey, String url);
+
+    default SunoApi getOrCreateSunoApi(Long keyId, String keyVersion, String apiKey, String url) {
+        return getOrCreateSunoApi(apiKey, url);
+    }
 
     /**
      * 基于指定配置，获得 EmbeddingModel 对象
@@ -95,6 +123,11 @@ public interface AiModelFactory {
      * @return ChatModel 对象
      */
     EmbeddingModel getOrCreateEmbeddingModel(AiPlatformEnum platform, String apiKey, String url, String model);
+
+    default EmbeddingModel getOrCreateEmbeddingModel(AiPlatformEnum platform, Long keyId, String keyVersion,
+                                                     String apiKey, String url, String model) {
+        return getOrCreateEmbeddingModel(platform, apiKey, url, model);
+    }
 
     /**
      * 基于指定配置，获得 VectorStore 对象

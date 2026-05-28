@@ -19,11 +19,9 @@ import cn.iocoder.yudao.module.ai.dal.dataobject.write.AiWriteDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.write.AiWriteMapper;
 import cn.iocoder.yudao.module.ai.enums.AiChatRoleEnum;
 import cn.iocoder.yudao.module.ai.enums.DictTypeConstants;
-import cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants;
 import cn.iocoder.yudao.module.ai.enums.write.AiWriteTypeEnum;
 import cn.iocoder.yudao.module.ai.service.model.AiChatRoleService;
 import cn.iocoder.yudao.module.ai.service.model.AiModelService;
-import cn.iocoder.yudao.module.system.api.dict.DictDataApi;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.Message;
@@ -39,6 +37,7 @@ import reactor.core.publisher.Flux;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.error;
@@ -54,6 +53,8 @@ import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.*;
 @Slf4j
 public class AiWriteServiceImpl implements AiWriteService {
 
+    private static final int ERROR_MESSAGE_MAX_LENGTH = 480;
+
     @Resource
     private AiModelService modalService;
     @Resource
@@ -64,6 +65,8 @@ public class AiWriteServiceImpl implements AiWriteService {
 
     @Override
     public Flux<CommonResult<String>> generateWriteContent(AiWriteGenerateReqVO generateReqVO, Long userId) {
+        validateGenerateReqVO(generateReqVO);
+
         // 1 获取写作模型。尝试获取写作助手角色，没有则使用默认模型
         AiChatRoleDO writeRole = CollUtil.getFirst(
                 chatRoleService.getChatRoleListByName(AiChatRoleEnum.AI_WRITE_ROLE.getName()));
@@ -87,8 +90,9 @@ public class AiWriteServiceImpl implements AiWriteService {
 
         // 3.2 流式返回
         StringBuffer contentBuffer = new StringBuffer();
-        return streamResponse.map(chunk -> {
-            String newContent = chunk.getResult() != null ? chunk.getResult().getOutput().getText() : null;
+        AtomicBoolean streamFailed = new AtomicBoolean(false);
+        Flux<CommonResult<String>> result = streamResponse.map(chunk -> {
+            String newContent = AiUtils.getChatResponseContent(chunk);
             newContent = StrUtil.nullToDefault(newContent, ""); // 避免 null 的 情况
             contentBuffer.append(newContent);
             // 响应结果
@@ -98,17 +102,35 @@ public class AiWriteServiceImpl implements AiWriteService {
             TenantUtils.executeIgnore(() ->
                     writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setGeneratedContent(contentBuffer.toString())));
         }).doOnError(throwable -> {
+            streamFailed.set(true);
             log.error("[generateWriteContent][generateReqVO({}) 发生异常]", generateReqVO, throwable);
             // 忽略租户，因为 Flux 异步无法透传租户
             TenantUtils.executeIgnore(() ->
-                    writeMapper.updateById(new AiWriteDO().setId(writeDO.getId()).setErrorMessage(throwable.getMessage())));
-        }).onErrorResume(error -> Flux.just(error(ErrorCodeConstants.WRITE_STREAM_ERROR)));
+                    writeMapper.updateById(new AiWriteDO().setId(writeDO.getId())
+                            .setErrorMessage(StrUtil.maxLength(throwable.getMessage(), ERROR_MESSAGE_MAX_LENGTH))));
+        }).onErrorResume(error -> Flux.just(error(WRITE_STREAM_ERROR)));
+        return Flux.concat(result, Flux.defer(() -> {
+            if (streamFailed.get() || StrUtil.isNotBlank(contentBuffer.toString())) {
+                return Flux.empty();
+            }
+            String errorMessage = WRITE_GENERATE_RESULT_EMPTY.getMsg();
+            TenantUtils.executeIgnore(() -> writeMapper.updateById(new AiWriteDO().setId(writeDO.getId())
+                    .setErrorMessage(errorMessage)));
+            return Flux.just(error(WRITE_GENERATE_RESULT_EMPTY));
+        }));
+    }
+
+    private void validateGenerateReqVO(AiWriteGenerateReqVO generateReqVO) {
+        if (Objects.equals(generateReqVO.getType(), AiWriteTypeEnum.REPLY.getType())
+                && StrUtil.isBlank(generateReqVO.getOriginalContent())) {
+            throw exception(WRITE_ORIGINAL_CONTENT_REQUIRED);
+        }
     }
 
     private AiModelDO getModel(AiChatRoleDO writeRole) {
         AiModelDO model = null;
         if (Objects.nonNull(writeRole) && Objects.nonNull(writeRole.getModelId())) {
-            model = modalService.getModel(writeRole.getModelId());
+            model = modalService.validateModel(writeRole.getModelId());
         }
         if (model == null) {
             model = modalService.getRequiredDefaultModel(AiModelTypeEnum.CHAT.getType());

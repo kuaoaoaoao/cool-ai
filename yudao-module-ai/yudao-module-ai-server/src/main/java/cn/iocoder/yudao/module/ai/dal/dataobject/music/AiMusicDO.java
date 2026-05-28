@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.ai.dal.dataobject.music;
 
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.framework.mybatis.core.dataobject.BaseDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.enums.music.AiMusicGenerateModeEnum;
 import cn.iocoder.yudao.module.ai.enums.music.AiMusicStatusEnum;
 import com.baomidou.mybatisplus.annotation.KeySequence;
@@ -84,7 +85,14 @@ public class AiMusicDO extends BaseDO {
      * 枚举 {@link AiPlatformEnum}
      */
     private String platform;
-    // TODO @芋艿：modelId？
+
+    /**
+     * 模型编号
+     * <p>
+     * 关联 {@link AiModelDO#getId()} 字段
+     */
+    private Long modelId;
+
     /**
      * 模型
      */

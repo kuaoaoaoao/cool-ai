@@ -5,9 +5,12 @@ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelPageReqVO;
+import cn.iocoder.yudao.module.ai.controller.admin.model.vo.AiModelConnectionTestRespVO;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelRespVO;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelSaveReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
+import cn.iocoder.yudao.module.ai.framework.ai.core.model.AiModelCapabilities;
+import cn.iocoder.yudao.module.ai.framework.ai.core.model.AiModelCapability;
 import cn.iocoder.yudao.module.ai.service.model.AiModelService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -62,7 +65,7 @@ public class AiModelController {
     @PreAuthorize("@ss.hasPermission('ai:model:query')")
     public CommonResult<AiModelRespVO> getModel(@RequestParam("id") Long id) {
         AiModelDO model = modelService.getModel(id);
-        return success(BeanUtils.toBean(model, AiModelRespVO.class));
+        return success(buildModelRespVO(model));
     }
 
     @GetMapping("/page")
@@ -70,7 +73,7 @@ public class AiModelController {
     @PreAuthorize("@ss.hasPermission('ai:model:query')")
     public CommonResult<PageResult<AiModelRespVO>> getModelPage(@Valid AiModelPageReqVO pageReqVO) {
         PageResult<AiModelDO> pageResult = modelService.getModelPage(pageReqVO);
-        return success(BeanUtils.toBean(pageResult, AiModelRespVO.class));
+        return success(BeanUtils.toBean(pageResult, AiModelRespVO.class, this::fillModelCapabilities));
     }
 
     @GetMapping("/simple-list")
@@ -82,8 +85,28 @@ public class AiModelController {
             @RequestParam(value = "platform", required = false) String platform) {
         List<AiModelDO> list = modelService.getModelListByStatusAndType(
                 CommonStatusEnum.ENABLE.getStatus(), type, platform);
-        return success(convertList(list, model -> new AiModelRespVO().setId(model.getId())
-                .setName(model.getName()).setModel(model.getModel()).setPlatform(model.getPlatform())));
+        return success(convertList(list, this::buildModelRespVO));
+    }
+
+    @PostMapping("/test-connection")
+    @Operation(summary = "测试模型连接")
+    @Parameter(name = "id", description = "编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('ai:model:update') || @ss.hasPermission('ai:model:query')")
+    public CommonResult<AiModelConnectionTestRespVO> testModelConnection(@RequestParam("id") Long id) {
+        return success(modelService.testModelConnection(id));
+    }
+
+    private AiModelRespVO buildModelRespVO(AiModelDO model) {
+        return fillModelCapabilities(BeanUtils.toBean(model, AiModelRespVO.class));
+    }
+
+    private AiModelRespVO fillModelCapabilities(AiModelRespVO respVO) {
+        AiModelDO model = BeanUtils.toBean(respVO, AiModelDO.class);
+        AiModelCapability capability = AiModelCapabilities.infer(model);
+        return respVO.setCapabilities(capability.getCapabilities())
+                .setInputModalities(capability.getInputModalities())
+                .setOutputModalities(capability.getOutputModalities())
+                .setConfigTips(capability.getConfigTips());
     }
 
 }

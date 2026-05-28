@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Schema(description = "管理后台 - AI 聊天对话 Response VO")
 @Data
@@ -30,6 +31,9 @@ public class AiChatConversationRespVO implements VO {
     @Trans(type = TransType.SIMPLE, target = AiChatRoleDO.class, fields = {"name", "avatar"}, refs = {"roleName", "roleAvatar"})
     private Long roleId;
 
+    @Schema(description = "知识库编号", example = "1")
+    private Long knowledgeId;
+
     @Schema(description = "模型编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     @Trans(type = TransType.SIMPLE, target = AiModelDO.class, fields = "name", ref = "modelName")
     private Long modelId;
@@ -39,6 +43,15 @@ public class AiChatConversationRespVO implements VO {
 
     @Schema(description = "模型名字", requiredMode = Schema.RequiredMode.REQUIRED, example = "张三")
     private String modelName;
+
+    @Schema(description = "模型能力标签，例如 chat、vision、stream")
+    private List<String> capabilities;
+
+    @Schema(description = "输入模态，例如 text、image")
+    private List<String> inputModalities;
+
+    @Schema(description = "输出模态，例如 text、audio")
+    private List<String> outputModalities;
 
     @Schema(description = "角色设定", example = "一个快乐的程序员")
     private String systemMessage;

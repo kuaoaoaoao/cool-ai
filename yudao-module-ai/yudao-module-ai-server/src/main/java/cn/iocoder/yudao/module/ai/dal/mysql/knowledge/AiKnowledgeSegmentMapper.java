@@ -36,6 +36,13 @@ public interface AiKnowledgeSegmentMapper extends BaseMapperX<AiKnowledgeSegment
                 .orderByDesc(AiKnowledgeSegmentDO::getId));
     }
 
+    default List<AiKnowledgeSegmentDO> selectListByVectorIdsAndStatus(List<String> vectorIds, Integer status) {
+        return selectList(new LambdaQueryWrapperX<AiKnowledgeSegmentDO>()
+                .in(AiKnowledgeSegmentDO::getVectorId, vectorIds)
+                .eq(AiKnowledgeSegmentDO::getStatus, status)
+                .orderByDesc(AiKnowledgeSegmentDO::getId));
+    }
+
     default List<AiKnowledgeSegmentDO> selectListByDocumentId(Long documentId) {
         return selectList(new LambdaQueryWrapperX<AiKnowledgeSegmentDO>()
                 .eq(AiKnowledgeSegmentDO::getDocumentId, documentId)

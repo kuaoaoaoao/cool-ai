@@ -3,9 +3,11 @@ package cn.iocoder.yudao.module.ai.service.model;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.midjourney.api.MidjourneyApi;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.suno.api.SunoApi;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
+import cn.iocoder.yudao.module.ai.controller.admin.model.vo.AiModelConnectionTestRespVO;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelPageReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelSaveReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
+import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import dev.tinyflow.core.Tinyflow;
 import jakarta.validation.Valid;
 import org.springframework.ai.chat.model.ChatModel;
@@ -80,6 +82,15 @@ public interface AiModelService {
     AiModelDO validateModel(Long id);
 
     /**
+     * 校验模型是否可使用，且模型类型正确。
+     *
+     * @param id 编号
+     * @param type 模型类型
+     * @return 模型
+     */
+    AiModelDO validateModel(Long id, AiModelTypeEnum type);
+
+    /**
      * 获得模型列表
      *
      * @param status 状态
@@ -89,6 +100,22 @@ public interface AiModelService {
      */
     List<AiModelDO> getModelListByStatusAndType(Integer status, Integer type,
                                                 @Nullable String platform);
+
+    /**
+     * 测试模型连接。
+     *
+     * @param id 模型编号
+     * @return 测试结果
+     */
+    AiModelConnectionTestRespVO testModelConnection(Long id);
+
+    /**
+     * 使用指定 API Key 下的第一个可测试模型测试连接。
+     *
+     * @param keyId API Key 编号
+     * @return 测试结果
+     */
+    AiModelConnectionTestRespVO testApiKeyConnection(Long keyId);
 
     // ========== 与 Spring AI 集成 ==========
 
@@ -122,6 +149,14 @@ public interface AiModelService {
      * @return SunoApi 对象
      */
     SunoApi getSunoApi();
+
+    /**
+     * 获得 SunoApi 对象
+     *
+     * @param id 模型编号
+     * @return SunoApi 对象
+     */
+    SunoApi getSunoApi(Long id);
 
     /**
      * 获得 VectorStore 对象

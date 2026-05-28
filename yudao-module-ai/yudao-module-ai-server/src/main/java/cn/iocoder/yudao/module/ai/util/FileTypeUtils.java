@@ -34,4 +34,24 @@ public class FileTypeUtils {
         return StrUtil.startWith(mineType, "image/");
     }
 
+    /**
+     * 判断是否是音频
+     *
+     * @param mineType 类型
+     * @return 是否是音频
+     */
+    public static boolean isAudio(String mineType) {
+        return StrUtil.startWith(mineType, "audio/");
+    }
+
+    /**
+     * 判断是否是视频
+     *
+     * @param mineType 类型
+     * @return 是否是视频
+     */
+    public static boolean isVideo(String mineType) {
+        return StrUtil.startWith(mineType, "video/");
+    }
+
 }

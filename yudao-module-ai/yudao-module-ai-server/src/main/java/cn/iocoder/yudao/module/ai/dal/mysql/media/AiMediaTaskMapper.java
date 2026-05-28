@@ -24,7 +24,8 @@ public interface AiMediaTaskMapper extends BaseMapperX<AiMediaTaskDO> {
                 .eqIfPresent(AiMediaTaskDO::getStatus, reqVO.getStatus())
                 .eqIfPresent(AiMediaTaskDO::getPlatform, reqVO.getPlatform())
                 .betweenIfPresent(AiMediaTaskDO::getCreateTime, reqVO.getCreateTime())
-                .orderByDesc(AiMediaTaskDO::getCreateTime));
+                .orderByDesc(AiMediaTaskDO::getCreateTime)
+                .orderByDesc(AiMediaTaskDO::getId));
     }
 
     default PageResult<AiMediaTaskDO> selectPageByUser(AiMediaTaskPageReqVO reqVO, Long userId) {
@@ -34,7 +35,9 @@ public interface AiMediaTaskMapper extends BaseMapperX<AiMediaTaskDO> {
                 .eqIfPresent(AiMediaTaskDO::getTaskType, reqVO.getTaskType())
                 .eqIfPresent(AiMediaTaskDO::getStatus, reqVO.getStatus())
                 .eqIfPresent(AiMediaTaskDO::getPlatform, reqVO.getPlatform())
-                .betweenIfPresent(AiMediaTaskDO::getCreateTime, reqVO.getCreateTime()));
+                .betweenIfPresent(AiMediaTaskDO::getCreateTime, reqVO.getCreateTime())
+                .orderByDesc(AiMediaTaskDO::getCreateTime)
+                .orderByDesc(AiMediaTaskDO::getId));
     }
 
     default Long selectCountByUserAndTaskTypeAndCreateTime(Long userId, Integer taskType,

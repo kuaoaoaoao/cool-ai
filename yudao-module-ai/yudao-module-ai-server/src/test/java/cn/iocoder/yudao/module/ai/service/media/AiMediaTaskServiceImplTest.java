@@ -6,10 +6,13 @@ import cn.iocoder.yudao.framework.tenant.core.db.TenantBaseDO;
 import cn.iocoder.yudao.module.ai.controller.admin.media.vo.AiMediaTaskCreateReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.media.vo.AiMediaTtsCreateReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.media.AiMediaTaskDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.media.AiVoiceProfileDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.media.AiMediaTaskMapper;
+import cn.iocoder.yudao.module.ai.dal.mysql.media.AiVoiceProfileMapper;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskStatusEnum;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskTypeEnum;
+import cn.iocoder.yudao.module.ai.enums.media.AiVoiceProfileSourceTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderAdapter;
@@ -33,6 +36,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.MEDIA_PROVIDER_CONFIG_MISSING;
 
 class AiMediaTaskServiceImplTest extends BaseMockitoUnitTest {
 
@@ -41,6 +45,8 @@ class AiMediaTaskServiceImplTest extends BaseMockitoUnitTest {
 
     @Mock
     private AiMediaTaskMapper mediaTaskMapper;
+    @Mock
+    private AiVoiceProfileMapper voiceProfileMapper;
     @Mock
     private AiModelService modelService;
     @Mock
@@ -92,6 +98,95 @@ class AiMediaTaskServiceImplTest extends BaseMockitoUnitTest {
         verify(mediaTaskMapper, never()).updateById(any(AiMediaTaskDO.class));
         verify(providerAdapterResolver, never()).resolve(any(AiMediaTaskDO.class));
         assertEquals(1, synchronizations.size());
+    }
+
+    @Test
+    void createTask_tts_success() {
+        Long userId = 10L;
+        AiMediaTaskCreateReqVO reqVO = new AiMediaTaskCreateReqVO()
+                .setTaskType(AiMediaTaskTypeEnum.TTS.getType())
+                .setInputJson(Map.of("text", "hello", "voice", "voice", "format", "mp3"));
+        AiModelDO model = new AiModelDO()
+                .setId(20L)
+                .setType(AiModelTypeEnum.VOICE.getType())
+                .setPlatform(AiPlatformEnum.XIAOMI_MIMO.getPlatform())
+                .setModel(XiaomiMiMoTtsProviderAdapter.MODEL);
+        when(modelService.getRequiredDefaultModel(AiModelTypeEnum.VOICE.getType())).thenReturn(model);
+        when(mediaTaskMapper.selectCountByUserAndTaskTypeAndCreateTime(eq(userId), eq(AiMediaTaskTypeEnum.TTS.getType()), any(), any()))
+                .thenReturn(0L);
+        doAnswer(invocation -> {
+            AiMediaTaskDO task = invocation.getArgument(0);
+            task.setId(100L);
+            return 1;
+        }).when(mediaTaskMapper).insert(any(AiMediaTaskDO.class));
+
+        TransactionSynchronizationManager.initSynchronization();
+        Long taskId;
+        try {
+            taskId = service.createTask(userId, reqVO);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertEquals(100L, taskId);
+        verify(mediaTaskMapper).insert(any(AiMediaTaskDO.class));
+    }
+
+    @Test
+    void createTask_ttsWithVoiceProfile_success() {
+        Long userId = 10L;
+        AiMediaTaskCreateReqVO reqVO = new AiMediaTaskCreateReqVO()
+                .setTaskType(AiMediaTaskTypeEnum.TTS.getType())
+                .setInputJson(Map.of("voiceProfileId", 30L, "text", "hello", "format", "wav"));
+        AiVoiceProfileDO profile = new AiVoiceProfileDO()
+                .setId(30L)
+                .setUserId(userId)
+                .setSourceType(AiVoiceProfileSourceTypeEnum.CLONE.getType())
+                .setModelId(20L)
+                .setSampleFileUrl("https://file.local/sample.wav")
+                .setSampleMimeType("audio/wav")
+                .setConsentConfirmed(true)
+                .setStatus(0);
+        AiModelDO model = new AiModelDO()
+                .setId(20L)
+                .setType(AiModelTypeEnum.VOICE.getType())
+                .setPlatform(AiPlatformEnum.XIAOMI_MIMO.getPlatform())
+                .setModel(XiaomiMiMoTtsProviderAdapter.MODEL_VOICE_CLONE);
+        when(voiceProfileMapper.selectById(30L)).thenReturn(profile);
+        when(modelService.validateModel(20L)).thenReturn(model);
+        when(mediaTaskMapper.selectCountByUserAndTaskTypeAndCreateTime(eq(userId), eq(AiMediaTaskTypeEnum.TTS.getType()), any(), any()))
+                .thenReturn(0L);
+        doAnswer(invocation -> {
+            AiMediaTaskDO task = invocation.getArgument(0);
+            task.setId(100L);
+            return 1;
+        }).when(mediaTaskMapper).insert(any(AiMediaTaskDO.class));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertEquals(100L, service.createTask(userId, reqVO));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        ArgumentCaptor<AiMediaTaskDO> taskCaptor = ArgumentCaptor.forClass(AiMediaTaskDO.class);
+        verify(mediaTaskMapper).insert(taskCaptor.capture());
+        AiMediaTaskDO task = taskCaptor.getValue();
+        assertEquals(XiaomiMiMoTtsProviderAdapter.MODEL_VOICE_CLONE, task.getModel());
+        assertEquals(AiVoiceProfileSourceTypeEnum.CLONE.getType(), task.getInputJson().get("voiceMode"));
+        assertEquals("https://file.local/sample.wav", task.getInputJson().get("sampleFileUrl"));
+        assertEquals(List.of("https://file.local/sample.wav"), task.getSourceFileIds());
+    }
+
+    @Test
+    void createTask_ttsMissingText() {
+        AiMediaTaskCreateReqVO reqVO = new AiMediaTaskCreateReqVO()
+                .setTaskType(AiMediaTaskTypeEnum.TTS.getType())
+                .setInputJson(Map.of("voice", "voice", "format", "mp3"));
+
+        ServiceException exception = assertThrows(ServiceException.class, () -> service.createTask(10L, reqVO));
+        assertEquals(MEDIA_PROVIDER_CONFIG_MISSING.getCode(), exception.getCode());
+        verify(mediaTaskMapper, never()).insert(any(AiMediaTaskDO.class));
     }
 
     @Test

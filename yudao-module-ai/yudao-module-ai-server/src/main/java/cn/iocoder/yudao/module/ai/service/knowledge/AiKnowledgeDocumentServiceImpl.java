@@ -3,7 +3,6 @@ package cn.iocoder.yudao.module.ai.service.knowledge;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.http.HttpUtil;
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
@@ -14,6 +13,7 @@ import cn.iocoder.yudao.module.ai.controller.admin.knowledge.vo.document.AiKnowl
 import cn.iocoder.yudao.module.ai.controller.admin.knowledge.vo.knowledge.AiKnowledgeDocumentCreateReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.knowledge.AiKnowledgeDocumentDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.knowledge.AiKnowledgeDocumentMapper;
+import cn.iocoder.yudao.module.ai.service.common.AiRemoteResourceService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -42,6 +42,8 @@ import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.*;
 @Slf4j
 public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentService {
 
+    private static final long MAX_DOCUMENT_FILE_BYTES = 20 * 1024 * 1024L;
+
     @Resource
     private AiKnowledgeDocumentMapper knowledgeDocumentMapper;
 
@@ -51,13 +53,15 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
     @Resource
     private AiKnowledgeSegmentService knowledgeSegmentService;
     @Resource
+    private AiRemoteResourceService remoteResourceService;
+    @Resource
     @Lazy // 延迟加载，避免循环依赖
     private AiKnowledgeService knowledgeService;
 
     @Override
     public Long createKnowledgeDocument(AiKnowledgeDocumentCreateReqVO createReqVO) {
         // 1. 校验参数
-        knowledgeService.validateKnowledgeExists(createReqVO.getKnowledgeId());
+        knowledgeService.validateKnowledgeEnabled(createReqVO.getKnowledgeId());
 
         // 2. 下载文档
         String content = readUrl(createReqVO.getUrl());
@@ -76,7 +80,7 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
     @Override
     public List<Long> createKnowledgeDocumentList(AiKnowledgeDocumentCreateListReqVO createListReqVO) {
         // 1. 校验参数
-        knowledgeService.validateKnowledgeExists(createListReqVO.getKnowledgeId());
+        knowledgeService.validateKnowledgeEnabled(createListReqVO.getKnowledgeId());
 
         // 2. 下载文档
         List<String> contents = convertList(createListReqVO.getList(), document -> readUrl(document.getUrl()));
@@ -141,9 +145,9 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
                 .setId(reqVO.getId()).setStatus(reqVO.getStatus()));
 
         // 3. 处理文档切片
-        if (CommonStatusEnum.isEnable(reqVO.getStatus())) {
+        if (CommonStatusEnum.isEnable(reqVO.getStatus()) && CommonStatusEnum.isDisable(document.getStatus())) {
             knowledgeSegmentService.createKnowledgeSegmentBySplitContentAsync(reqVO.getId(), document.getContent());
-        } else {
+        } else if (CommonStatusEnum.isDisable(reqVO.getStatus()) && CommonStatusEnum.isEnable(document.getStatus())) {
             knowledgeSegmentService.deleteKnowledgeSegmentByDocumentId(reqVO.getId());
         }
     }
@@ -175,7 +179,7 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
         // 下载文件
         ByteArrayResource resource;
         try {
-            byte[] bytes = HttpUtil.downloadBytes(url);
+            byte[] bytes = remoteResourceService.download(url, MAX_DOCUMENT_FILE_BYTES);
             if (bytes.length == 0) {
                 throw exception(KNOWLEDGE_DOCUMENT_FILE_EMPTY);
             }
