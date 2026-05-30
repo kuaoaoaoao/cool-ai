@@ -16,7 +16,9 @@ import java.util.Arrays;
 public enum AiMediaTaskTypeEnum implements ArrayValuable<Integer> {
 
     UNKNOWN(0, "未知"),
-    TTS(1, "文本转语音");
+    TTS(1, "文本转语音"),
+    IMAGE_TO_VIDEO(2, "图生视频"),
+    TEXT_TO_VIDEO(3, "文生视频");
 
     private final Integer type;
     private final String name;

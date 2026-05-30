@@ -75,12 +75,16 @@
 - **THEN** 系统 SHALL 保存源视频文件引用，并在任务输入中关联该引用
 
 ### Requirement: 第一阶段能力范围
-系统 SHALL 在第一阶段只执行 `TTS` 类型媒体任务，其它任务类型 SHALL 作为后续计划能力保留入口但返回未启用提示。
+系统 SHALL 在第一阶段只执行 `TTS` 类型媒体任务，其它任务类型 SHALL 作为后续计划能力保留入口但返回未启用提示。`TTS` 类型内部 MAY 支持 Provider 自身的预置音色、云音色克隆和文字设计音色模式。
 
 #### Scenario: 执行 TTS 任务
 - **WHEN** 用户提交合法 TTS 请求且 Provider 已配置
 - **THEN** 系统 SHALL 创建并执行 TTS 媒体任务
 
+#### Scenario: 执行 MiMo 云音色克隆 TTS
+- **WHEN** 用户提交合法 TTS 请求、选择 MiMo 云音色克隆模式并完成授权确认
+- **THEN** 系统 SHALL 仍创建并执行 `TTS` 媒体任务，而不是创建独立 `VOICE_CLONE` 任务
+
 #### Scenario: 提交未启用任务类型
-- **WHEN** 用户提交 `VOICE_CLONE`、`TEXT_TO_VIDEO`、`IMAGE_TO_VIDEO` 或 `PERSON_REPLACE` 任务
+- **WHEN** 用户提交独立 `VOICE_CLONE`、`TEXT_TO_VIDEO`、`IMAGE_TO_VIDEO` 或 `PERSON_REPLACE` 任务
 - **THEN** 系统 SHALL 拒绝执行任务并返回能力未启用提示

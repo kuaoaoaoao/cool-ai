@@ -64,6 +64,14 @@ public interface FileService {
     FileDO getFile(Long id);
 
     /**
+     * 根据访问地址获得文件。
+     *
+     * @param url 访问地址
+     * @return 文件
+     */
+    FileDO getFileByUrl(String url);
+
+    /**
      * 删除文件
      *
      * @param id 编号

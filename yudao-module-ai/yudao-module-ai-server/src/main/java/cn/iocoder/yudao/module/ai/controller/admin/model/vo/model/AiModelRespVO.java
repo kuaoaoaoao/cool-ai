@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Schema(description = "管理后台 - AI 模型 Response VO")
 @Data
@@ -54,6 +55,15 @@ public class AiModelRespVO {
 
     @Schema(description = "配置提示")
     private List<String> configTips;
+
+    @Schema(description = "模型默认参数")
+    private Map<String, Object> options;
+
+    @Schema(description = "模型限制信息")
+    private Map<String, Object> limits;
+
+    @Schema(description = "扩展元数据")
+    private Map<String, Object> metadata;
 
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED)
     private LocalDateTime createTime;

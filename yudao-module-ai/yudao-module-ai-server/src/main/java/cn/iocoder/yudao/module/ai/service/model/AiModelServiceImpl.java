@@ -15,7 +15,10 @@ import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelPageReq
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelSaveReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiApiKeyDO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelSceneDO;
 import cn.iocoder.yudao.module.ai.dal.mysql.model.AiChatMapper;
+import cn.iocoder.yudao.module.ai.dal.mysql.model.AiModelSceneMapper;
+import cn.iocoder.yudao.module.ai.enums.model.AiModelSceneEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.module.ai.framework.ai.core.model.AiModelFactory;
@@ -45,6 +48,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.ai.enums.ErrorCodeConstants.*;
@@ -71,6 +75,9 @@ public class AiModelServiceImpl implements AiModelService {
 
     @Resource
     private AiChatMapper modelMapper;
+
+    @Resource
+    private AiModelSceneMapper modelSceneMapper;
 
     @Resource
     private AiModelFactory modelFactory;
@@ -126,6 +133,20 @@ public class AiModelServiceImpl implements AiModelService {
         reqVO.setName(StrUtil.trim(reqVO.getName()));
         reqVO.setModel(StrUtil.trim(reqVO.getModel()));
         reqVO.setPlatform(StrUtil.trim(reqVO.getPlatform()));
+        reqVO.setCapabilities(normalizeStringList(reqVO.getCapabilities()));
+        reqVO.setInputModalities(normalizeStringList(reqVO.getInputModalities()));
+        reqVO.setOutputModalities(normalizeStringList(reqVO.getOutputModalities()));
+    }
+
+    private List<String> normalizeStringList(List<String> values) {
+        if (values == null) {
+            return null;
+        }
+        return values.stream()
+                .map(StrUtil::trim)
+                .filter(StrUtil::isNotBlank)
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -140,6 +161,15 @@ public class AiModelServiceImpl implements AiModelService {
             throw exception(MODEL_DEFAULT_NOT_EXISTS);
         }
         return model;
+    }
+
+    @Override
+    public AiModelDO getRequiredDefaultModel(AiModelSceneEnum scene, AiModelTypeEnum fallbackType) {
+        AiModelSceneDO modelScene = modelSceneMapper.selectFirstByScene(scene.getScene());
+        if (modelScene == null) {
+            return getRequiredDefaultModel(fallbackType.getType());
+        }
+        return validateModel(modelScene.getModelId(), fallbackType);
     }
 
     @Override

@@ -171,6 +171,15 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    public FileDO getFileByUrl(String url) {
+        FileDO file = fileMapper.selectByUrl(url);
+        if (file == null) {
+            throw exception(FILE_NOT_EXISTS);
+        }
+        return file;
+    }
+
+    @Override
     public void deleteFile(Long id) throws Exception {
         // 校验存在
         FileDO file = validateFileExists(id);

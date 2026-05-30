@@ -9,6 +9,9 @@ import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.util.List;
+import java.util.Map;
+
 @Schema(description = "管理后台 - API 模型新增/修改 Request VO")
 @Data
 public class AiModelSaveReqVO {
@@ -46,6 +49,24 @@ public class AiModelSaveReqVO {
     @InEnum(CommonStatusEnum.class)
     @NotNull(message = "状态不能为空")
     private Integer status;
+
+    @Schema(description = "能力标签", example = "[\"chat\", \"stream\"]")
+    private List<String> capabilities;
+
+    @Schema(description = "输入模态", example = "[\"text\", \"image\"]")
+    private List<String> inputModalities;
+
+    @Schema(description = "输出模态", example = "[\"text\"]")
+    private List<String> outputModalities;
+
+    @Schema(description = "模型默认参数")
+    private Map<String, Object> options;
+
+    @Schema(description = "模型限制信息")
+    private Map<String, Object> limits;
+
+    @Schema(description = "扩展元数据")
+    private Map<String, Object> metadata;
 
     @Schema(description = "温度参数", example = "1")
     private Double temperature;

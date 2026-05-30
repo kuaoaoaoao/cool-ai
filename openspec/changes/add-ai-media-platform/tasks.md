@@ -1,4 +1,4 @@
-> Scope: This task list covers the first delivery phase only: unified `ai_media_task` foundation plus an end-to-end TTS flow using Xiaomi MiMo `mimo-v2.5-tts`. Voice cloning, video generation, person replacement, Python Workers, MQ execution, and advanced agent workflows are follow-up phases unless explicitly listed here as non-executable placeholders.
+> Scope: This task list covers the first delivery phase only: unified `ai_media_task` foundation plus an end-to-end TTS flow using Xiaomi MiMo TTS models. First phase executes `TTS` tasks only, but TTS now includes built-in voice, MiMo cloud voice clone, and MiMo cloud voice design modes. Local voice cloning/voice conversion models, video generation, person replacement, Python Workers, MQ execution, and advanced agent workflows are follow-up phases unless explicitly listed here as non-executable placeholders.
 
 ## 1. AI Module Readiness
 
@@ -30,11 +30,13 @@
 ## 5. Xiaomi MiMo TTS Adapter
 
 - [x] 5.1 Run a MiMo TTS API spike against official documentation or a mock to confirm request shape, response shape, audio payload format, required fields, and error format.
-- [x] 5.2 Implement Xiaomi MiMo `mimo-v2.5-tts` adapter using the confirmed endpoint and payload contract.
+- [x] 5.2 Implement Xiaomi MiMo TTS adapter using the confirmed endpoint and payload contract.
 - [x] 5.3 Map TTS text and optional style/emotion guidance according to the confirmed MiMo request format.
 - [x] 5.4 Pass configured `voice` and `format` values from provider configuration or dictionary data.
 - [x] 5.5 Send configured API key through the `api-key` header and fail clearly when the key is missing.
 - [x] 5.6 Decode or stream-process the returned audio according to the confirmed MiMo response format and convert successful provider response into media task output data.
+- [x] 5.7 Support MiMo built-in voice, cloud voice clone, and cloud voice design modes through matching `VOICE` models: `mimo-v2.5-tts`, `mimo-v2.5-tts-voiceclone`, and `mimo-v2.5-tts-voicedesign`.
+- [x] 5.8 Add voice clone sample validation, authorization confirmation, private-url download guard, and sample size/type checks.
 
 ## 6. File Result Handling
 
@@ -67,3 +69,4 @@
 - [x] 9.6 Add tenant isolation tests to ensure one user or tenant cannot access another user's media tasks.
 - [x] 9.7 Add validation or smoke test notes for manual Xiaomi MiMo API key configuration and end-to-end TTS generation.
 - [x] 9.8 Run the relevant Maven test/build command for `yudao-module-ai` and record any skipped checks or environment blockers.
+- [x] 9.9 Record first-phase hardening status, including SSRF protection, quota-lock strict mode, voice profile field cleanup, and image model connection-test dry run.

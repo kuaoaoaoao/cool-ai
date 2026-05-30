@@ -1,18 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: TTS 任务创建
-系统 SHALL 支持创建文本转语音媒体任务，并在第一阶段优先支持小米 MiMo `mimo-v2.5-tts` Provider。
+系统 SHALL 支持创建文本转语音媒体任务，并在第一阶段优先支持小米 MiMo TTS Provider。
 
 #### Scenario: 创建小米 TTS 任务
 - **WHEN** 用户提交文本、音色、音频格式和可选风格提示
-- **THEN** 系统 SHALL 创建 `TTS` 类型媒体任务，并选择 Xiaomi MiMo `mimo-v2.5-tts` 作为 Provider 模型
+- **THEN** 系统 SHALL 创建 `TTS` 类型媒体任务，并根据音色模式选择 Xiaomi MiMo `mimo-v2.5-tts`、`mimo-v2.5-tts-voiceclone` 或 `mimo-v2.5-tts-voicedesign` 作为 Provider 模型
 
 #### Scenario: TTS 参数缺失
 - **WHEN** 用户提交 TTS 请求但缺少必需文本或音色参数
 - **THEN** 系统 MUST 拒绝创建任务并返回参数错误
 
 ### Requirement: 小米 MiMo TTS 输入映射
-系统 SHALL 将 TTS 文本、风格提示、音色和音频格式映射到小米 MiMo `mimo-v2.5-tts` 官方接口所需请求结构。
+系统 SHALL 将 TTS 文本、风格提示、音色模式和音频格式映射到小米 MiMo TTS 官方接口所需请求结构。
 
 #### Scenario: 映射合成文本
 - **WHEN** 系统调用小米 MiMo TTS Provider
@@ -25,6 +25,14 @@
 #### Scenario: 映射音频参数
 - **WHEN** 用户选择音色和输出格式
 - **THEN** 系统 SHALL 将 `voice` 和 `format` 作为音频生成选项传递给 Provider
+
+#### Scenario: 映射云音色克隆
+- **WHEN** 用户选择 MiMo 云音色克隆并提交授权确认和样本音频
+- **THEN** 系统 SHALL 校验样本类型和大小，并将样本编码为 Provider 所需的 voice data URL
+
+#### Scenario: 映射文字设计音色
+- **WHEN** 用户选择 MiMo 文字设计音色并提交音色描述
+- **THEN** 系统 SHALL 将音色描述映射到 Provider 请求，并使用 `mimo-v2.5-tts-voicedesign` 模型执行 TTS
 
 #### Scenario: 使用 Provider 配置值
 - **WHEN** 系统校验 TTS 音色和格式
@@ -42,7 +50,7 @@
 - **THEN** 系统 SHALL 将媒体任务标记为失败，并记录 Provider 错误信息
 
 ### Requirement: 声音克隆任务预留
-系统 SHALL 为声音克隆保留任务类型和安全控制入口，但第一阶段不要求直接实现本地声音克隆模型推理。
+系统 SHALL 为独立声音克隆任务和本地声音克隆模型保留任务类型和安全控制入口，但第一阶段不要求直接实现本地声音克隆模型推理。MiMo 云音色克隆 SHALL 作为 `TTS` 任务的一种音色模式执行。
 
 #### Scenario: 创建声音克隆任务前置校验
 - **WHEN** 用户尝试创建声音克隆任务
@@ -52,8 +60,8 @@
 - **WHEN** 声音克隆 Provider 或 Python Worker 尚未配置
 - **THEN** 系统 SHALL 拒绝创建可执行任务，并返回能力未启用提示
 
-#### Scenario: 第一阶段提交声音克隆任务
-- **WHEN** 第一阶段用户提交声音克隆任务
+#### Scenario: 第一阶段提交独立声音克隆任务
+- **WHEN** 第一阶段用户提交独立 `VOICE_CLONE` 任务
 - **THEN** 系统 SHALL 返回能力未启用提示，并保留该能力在后续阶段接入 Python Worker 的计划入口
 
 ### Requirement: 音频任务结果管理

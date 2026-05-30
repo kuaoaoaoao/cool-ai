@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * AI 模型能力推断工具。
  *
- * 第一阶段先通过平台、模型类型、模型 ID 推断能力，不改 ai_model 表结构。
+ * 优先使用 ai_model 显式配置的能力与模态；旧数据为空时，通过平台、模型类型、模型 ID 推断能力。
  *
  * @author kuao
  */
@@ -27,7 +27,13 @@ public class AiModelCapabilities {
     public static final String CAPABILITY_STREAM = "stream";
     public static final String CAPABILITY_TOOL = "tool";
     public static final String CAPABILITY_EMBEDDING = "embedding";
+    public static final String CAPABILITY_RERANK = "rerank";
     public static final String CAPABILITY_TTS = "tts";
+    public static final String CAPABILITY_ASR = "asr";
+    public static final String CAPABILITY_TEXT_GENERATION = "text-generation";
+    public static final String CAPABILITY_IMAGE_GENERATION = "image-generation";
+    public static final String CAPABILITY_TEXT_TO_VIDEO = "text-to-video";
+    public static final String CAPABILITY_IMAGE_TO_VIDEO = "image-to-video";
     public static final String CAPABILITY_OPENAI_COMPATIBLE = "openai-compatible";
     public static final String CAPABILITY_ANTHROPIC_COMPATIBLE = "anthropic-compatible";
 
@@ -35,37 +41,66 @@ public class AiModelCapabilities {
     public static final String MODALITY_IMAGE = "image";
     public static final String MODALITY_AUDIO = "audio";
     public static final String MODALITY_VIDEO = "video";
+    public static final String MODALITY_VECTOR = "vector";
+    public static final String MODALITY_SCORE = "score";
 
     public static AiModelCapability infer(AiModelDO model) {
-        AiModelCapability capability = new AiModelCapability()
-                .setCapabilities(new ArrayList<>())
-                .setInputModalities(new ArrayList<>())
-                .setOutputModalities(new ArrayList<>())
-                .setConfigTips(new ArrayList<>());
+        AiModelCapability capability = newCapability();
         if (model == null) {
             return capability;
         }
         AiPlatformEnum platform = AiPlatformEnum.validatePlatform(model.getPlatform());
         Integer type = model.getType();
+        if (!isEmpty(model.getCapabilities()) || !isEmpty(model.getInputModalities())
+                || !isEmpty(model.getOutputModalities())) {
+            AiModelCapability inferredCapability = newCapability();
+            inferByType(inferredCapability, platform, type, model.getModel());
+            add(capability.getCapabilities(), !isEmpty(model.getCapabilities())
+                    ? model.getCapabilities() : inferredCapability.getCapabilities());
+            add(capability.getInputModalities(), !isEmpty(model.getInputModalities())
+                    ? model.getInputModalities() : inferredCapability.getInputModalities());
+            add(capability.getOutputModalities(), !isEmpty(model.getOutputModalities())
+                    ? model.getOutputModalities() : inferredCapability.getOutputModalities());
+            appendConfigTips(capability, platform, type, model.getModel());
+            return capability;
+        }
+        inferByType(capability, platform, type, model.getModel());
+        appendConfigTips(capability, platform, type, model.getModel());
+        return capability;
+    }
+
+    private static AiModelCapability newCapability() {
+        return new AiModelCapability()
+                .setCapabilities(new ArrayList<>())
+                .setInputModalities(new ArrayList<>())
+                .setOutputModalities(new ArrayList<>())
+                .setConfigTips(new ArrayList<>());
+    }
+
+    private static void inferByType(AiModelCapability capability, AiPlatformEnum platform, Integer type, String model) {
         if (AiModelTypeEnum.CHAT.getType().equals(type)) {
-            inferChat(capability, platform, model.getModel());
+            inferChat(capability, platform, model);
         } else if (AiModelTypeEnum.IMAGE.getType().equals(type)) {
-            add(capability.getCapabilities(), CAPABILITY_IMAGE);
+            add(capability.getCapabilities(), CAPABILITY_IMAGE, CAPABILITY_IMAGE_GENERATION);
             add(capability.getInputModalities(), MODALITY_TEXT);
             add(capability.getOutputModalities(), MODALITY_IMAGE);
         } else if (AiModelTypeEnum.EMBEDDING.getType().equals(type)) {
             add(capability.getCapabilities(), CAPABILITY_EMBEDDING);
             add(capability.getInputModalities(), MODALITY_TEXT);
-            add(capability.getOutputModalities(), "vector");
+            add(capability.getOutputModalities(), MODALITY_VECTOR);
         } else if (AiModelTypeEnum.VOICE.getType().equals(type)) {
-            inferVoice(capability, platform, model.getModel());
+            inferVoice(capability, platform, model);
+        } else if (AiModelTypeEnum.VIDEO.getType().equals(type)) {
+            inferVideo(capability, model);
+        } else if (AiModelTypeEnum.RERANK.getType().equals(type)) {
+            add(capability.getCapabilities(), CAPABILITY_RERANK);
+            add(capability.getInputModalities(), MODALITY_TEXT);
+            add(capability.getOutputModalities(), MODALITY_SCORE);
         }
-        appendConfigTips(capability, platform, type, model.getModel());
-        return capability;
     }
 
     private static void inferChat(AiModelCapability capability, AiPlatformEnum platform, String model) {
-        add(capability.getCapabilities(), CAPABILITY_CHAT, CAPABILITY_STREAM);
+        add(capability.getCapabilities(), CAPABILITY_CHAT, CAPABILITY_TEXT_GENERATION, CAPABILITY_STREAM);
         add(capability.getInputModalities(), MODALITY_TEXT);
         add(capability.getOutputModalities(), MODALITY_TEXT);
         if (AiUtils.supportImageInput(platform, model)) {
@@ -90,6 +125,21 @@ public class AiModelCapabilities {
         }
         if (platform == AiPlatformEnum.ANTHROPIC) {
             add(capability.getCapabilities(), CAPABILITY_ANTHROPIC_COMPATIBLE);
+        }
+    }
+
+    private static void inferVideo(AiModelCapability capability, String model) {
+        add(capability.getCapabilities(), CAPABILITY_VIDEO);
+        add(capability.getOutputModalities(), MODALITY_VIDEO);
+        if (StrUtil.containsAnyIgnoreCase(model, "i2v", "image-to-video", "image2video")) {
+            add(capability.getCapabilities(), CAPABILITY_IMAGE_TO_VIDEO);
+            add(capability.getInputModalities(), MODALITY_IMAGE, MODALITY_TEXT);
+        } else if (StrUtil.containsAnyIgnoreCase(model, "t2v", "text-to-video", "text2video")) {
+            add(capability.getCapabilities(), CAPABILITY_TEXT_TO_VIDEO);
+            add(capability.getInputModalities(), MODALITY_TEXT);
+        } else {
+            add(capability.getCapabilities(), CAPABILITY_TEXT_TO_VIDEO, CAPABILITY_IMAGE_TO_VIDEO);
+            add(capability.getInputModalities(), MODALITY_TEXT, MODALITY_IMAGE);
         }
     }
 
@@ -135,10 +185,24 @@ public class AiModelCapabilities {
         }
     }
 
+    private static boolean isEmpty(List<String> values) {
+        return values == null || values.isEmpty();
+    }
+
+    private static void add(List<String> values, List<String> items) {
+        if (items == null) {
+            return;
+        }
+        for (String item : items) {
+            add(values, item);
+        }
+    }
+
     private static void add(List<String> values, String... items) {
         for (String item : items) {
-            if (!values.contains(item)) {
-                values.add(item);
+            String normalizedItem = StrUtil.trim(item);
+            if (StrUtil.isNotBlank(normalizedItem) && !values.contains(normalizedItem)) {
+                values.add(normalizedItem);
             }
         }
     }

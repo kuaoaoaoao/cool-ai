@@ -29,6 +29,7 @@ public enum AiPlatformEnum implements ArrayValuable<String> {
     MOONSHOT("Moonshot", "月之暗面"), // KIMI
     BAI_CHUAN("BaiChuan", "百川智能"), // 百川智能
     XIAOMI_MIMO("XiaomiMiMo", "小米 MiMo"), // 小米 MiMo
+    PYTHON_WORKER("PythonWorker", "Python Worker"), // 本地或自定义媒体 Worker
 
     // ========== 国外平台 ==========
 

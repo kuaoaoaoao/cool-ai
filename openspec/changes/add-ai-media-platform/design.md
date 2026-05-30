@@ -201,23 +201,23 @@ Rationale: a minimal common envelope gives Java a stable orchestration contract 
 
 ### 6. Prefer third-party APIs for MVP, Python Worker for local/custom inference
 
-The first deliverable path should prioritize third-party APIs for capabilities such as TTS, music generation expansion, and text/image-to-video MVPs. Python Worker integration should follow for capabilities where local/custom control matters most: voice cloning, person replacement, and local video models.
+The first deliverable path should prioritize third-party APIs for capabilities such as TTS, music generation expansion, and text/image-to-video MVPs. Python Worker integration should follow for capabilities where local/custom control matters most: local voice cloning or voice conversion, person replacement, and local video models.
 
-Xiaomi MiMo `mimo-v2.5-tts` is the first provider integration target. Its API key should be configured outside source code, using the existing model/API key configuration path, Nacos/environment configuration, or a later admin-managed provider credential flow. The initial implementation may leave the key value empty for manual configuration.
+Xiaomi MiMo TTS is the first provider integration target. Its API key should be configured outside source code, using the existing model/API key configuration path, Nacos/environment configuration, or a later admin-managed provider credential flow. The initial implementation may leave the key value empty for manual configuration.
 
-The first implementation phase SHALL only execute `TTS` tasks. Other task types such as `VOICE_CLONE`, `TEXT_TO_VIDEO`, `IMAGE_TO_VIDEO`, and `PERSON_REPLACE` remain planned capabilities and should return a clear capability-not-enabled response until their providers and safety controls are implemented.
+The first implementation phase SHALL only execute `TTS` tasks. Inside TTS, Xiaomi MiMo built-in voice, cloud voice clone, and cloud voice design are supported as provider modes through matching `VOICE` models. Other media task types such as standalone `VOICE_CLONE`, `TEXT_TO_VIDEO`, `IMAGE_TO_VIDEO`, and `PERSON_REPLACE` remain planned capabilities and should return a clear capability-not-enabled response until their providers and safety controls are implemented.
 
 The initial Xiaomi adapter contract should follow the official MiMo speech synthesis API shape:
 
 - Endpoint: `POST https://api.xiaomimimo.com/v1/chat/completions`
 - Authentication header: `api-key: <configured-api-key>`
-- Model: `mimo-v2.5-tts`
+- Model: `mimo-v2.5-tts`, `mimo-v2.5-tts-voiceclone`, or `mimo-v2.5-tts-voicedesign`, selected by TTS voice mode
 - Target synthesis text: `messages` item with role `assistant`
 - Optional speaking style or emotional guidance: `messages` item with role `user`
-- Audio options: include output `format` and `voice`
+- Audio options: include output `format` and either built-in `voice`, voice clone sample data, or voice design options
 - Response handling: decode the returned base64 audio payload and store the generated audio through the Java-side file service before completing the media task.
 
-The first TTS task input should therefore capture text, optional style instruction, voice, audio format, and provider/model selection. Supported voice and format values should come from provider configuration or dictionary data rather than being hard-coded in the specs. Provider-specific raw options can remain in `input_json` until a richer UI is needed.
+The first TTS task input should therefore capture text, optional style instruction, voice mode, built-in voice or clone/design inputs, audio format, and provider/model selection. Supported voice and format values should come from provider configuration or dictionary data rather than being hard-coded in the specs. Provider-specific raw options can remain in `input_json` until a richer UI is needed.
 
 Alternatives considered:
 

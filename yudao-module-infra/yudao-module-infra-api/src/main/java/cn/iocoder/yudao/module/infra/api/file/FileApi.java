@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.infra.api.file;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.module.infra.api.file.dto.FileCreateReqDTO;
+import cn.iocoder.yudao.module.infra.api.file.dto.FileRespDTO;
 import cn.iocoder.yudao.module.infra.enums.ApiConstants;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -57,6 +58,16 @@ public interface FileApi {
     @PostMapping(PREFIX + "/create")
     @Operation(summary = "保存文件，并返回文件的访问路径")
     CommonResult<String> createFile(@Valid @RequestBody FileCreateReqDTO createReqDTO);
+
+    /**
+     * 根据访问地址获取文件元数据。
+     *
+     * @param url 完整的文件访问地址
+     * @return 文件元数据
+     */
+    @GetMapping(PREFIX + "/get-by-url")
+    @Operation(summary = "根据访问地址获取文件元数据")
+    CommonResult<FileRespDTO> getFileByUrl(@NotEmpty(message = "URL 不能为空") @RequestParam("url") String url);
 
     /**
      * 生成文件预签名地址，用于读取

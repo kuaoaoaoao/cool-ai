@@ -2,7 +2,9 @@ package cn.iocoder.yudao.module.infra.api.file;
 
 import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.module.infra.api.file.dto.FileCreateReqDTO;
+import cn.iocoder.yudao.module.infra.api.file.dto.FileRespDTO;
 import cn.iocoder.yudao.module.infra.service.file.FileService;
+import cn.iocoder.yudao.framework.common.util.object.BeanUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -21,6 +23,11 @@ public class FileApiImpl implements FileApi {
     public CommonResult<String> createFile(FileCreateReqDTO createReqDTO) {
         return success(fileService.createFile(createReqDTO.getContent(), createReqDTO.getName(),
                 createReqDTO.getDirectory(), createReqDTO.getType()));
+    }
+
+    @Override
+    public CommonResult<FileRespDTO> getFileByUrl(String url) {
+        return success(BeanUtils.toBean(fileService.getFileByUrl(url), FileRespDTO.class));
     }
 
     @Override

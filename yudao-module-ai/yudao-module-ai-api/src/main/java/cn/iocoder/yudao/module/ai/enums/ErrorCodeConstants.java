@@ -95,6 +95,23 @@ public interface ErrorCodeConstants {
     ErrorCode MEDIA_PROVIDER_RESPONSE_INVALID = new ErrorCode(1_040_012_008, "媒体 Provider 返回格式异常");
     ErrorCode MEDIA_FILE_SAVE_FAIL = new ErrorCode(1_040_012_009, "媒体结果文件保存失败：{}");
     ErrorCode MEDIA_TTS_QUOTA_LOCK_FAIL = new ErrorCode(1_040_012_010, "TTS 配额校验繁忙，请稍后重试");
+    ErrorCode MEDIA_VIDEO_DISABLED = new ErrorCode(1_040_012_011, "视频生成功能未开启");
+    ErrorCode MEDIA_VIDEO_QUOTA_EXCEEDED = new ErrorCode(1_040_012_012, "今日视频生成次数已达上限");
+    ErrorCode MEDIA_VIDEO_SOURCE_REQUIRED = new ErrorCode(1_040_012_013, "图生视频源图片不能为空");
+    ErrorCode MEDIA_VIDEO_SOURCE_INVALID = new ErrorCode(1_040_012_014, "图生视频源图片不合法：{}");
+    ErrorCode MEDIA_VIDEO_SIZE_INVALID = new ErrorCode(1_040_012_015, "视频尺寸不支持：{}");
+    ErrorCode MEDIA_VIDEO_CONCURRENT_EXCEEDED = new ErrorCode(1_040_012_016, "当前运行中的视频任务已达上限");
+    ErrorCode MEDIA_VIDEO_MODEL_CAPABILITY_UNSUPPORTED = new ErrorCode(1_040_012_017, "当前视频模型不支持图生视频，请选择 image-to-video 模型");
+    ErrorCode MEDIA_VIDEO_SOURCE_FORBIDDEN = new ErrorCode(1_040_012_018, "无权使用该图生视频源图片");
+    ErrorCode MEDIA_VIDEO_TENANT_QUOTA_EXCEEDED = new ErrorCode(1_040_012_019, "当前租户今日视频生成次数已达上限");
+    ErrorCode MEDIA_VIDEO_DURATION_INVALID = new ErrorCode(1_040_012_020, "视频时长不支持：{}");
+    ErrorCode MEDIA_TASK_STATUS_INVALID = new ErrorCode(1_040_012_021, "媒体任务当前状态不支持该操作：{}");
+    ErrorCode MEDIA_TASK_RETRY_EXCEEDED = new ErrorCode(1_040_012_022, "媒体任务重试次数已达上限");
+    ErrorCode MEDIA_SENSITIVE_DISABLED = new ErrorCode(1_040_012_023, "敏感媒体能力({})未开启");
+    ErrorCode MEDIA_SENSITIVE_FORBIDDEN = new ErrorCode(1_040_012_024, "无权使用敏感媒体能力({})");
+    ErrorCode MEDIA_SENSITIVE_CONFIRM_REQUIRED = new ErrorCode(1_040_012_025, "敏感媒体能力({})需要显式确认授权和风险");
+    ErrorCode MEDIA_SENSITIVE_SOURCE_INVALID = new ErrorCode(1_040_012_026, "敏感媒体素材不合法：{}");
+    ErrorCode MEDIA_SENSITIVE_SOURCE_FORBIDDEN = new ErrorCode(1_040_012_027, "无权使用该敏感媒体素材");
 
     // ========== AI 音色库 1-040-013-000 ==========
     ErrorCode VOICE_PROFILE_NOT_EXISTS = new ErrorCode(1_040_013_000, "音色不存在");

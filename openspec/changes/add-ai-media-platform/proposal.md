@@ -8,7 +8,7 @@ The project already has a strong Java/Spring AI foundation for chat, model manag
 - Add first-class audio capabilities for text-to-speech, voice cloning, music generation expansion, and future audio processing such as denoising, separation, or voice conversion.
 - Add first-class video capabilities for text-to-video, image-to-video, face/person replacement, and future video post-processing such as subtitles, enhancement, or composition.
 - Define a provider integration boundary that supports both third-party AI APIs for early MVP delivery and Python Worker services for local/custom model inference.
-- Use Xiaomi MiMo `mimo-v2.5-tts` as the first third-party provider integration target for validating the provider adapter and media task flow.
+- Use Xiaomi MiMo TTS models as the first third-party provider integration target for validating the provider adapter and media task flow, including built-in voice, cloud voice clone, and cloud voice design modes under the `TTS` task type.
 - Expose selected media capabilities as chat-callable tools through the existing Spring AI tool/function calling and MCP-oriented chat role model, with confirmation and quota controls for sensitive or expensive operations.
 - Establish a phased development path: AI module stabilization, media task center, third-party API MVPs, Python Worker integration, agent tool invocation, then multi-step creative workflows.
 - No breaking changes are intended for existing chat, image, music, model, or knowledge features.
@@ -39,6 +39,6 @@ None. There are no existing OpenSpec capabilities yet.
 
 ## Follow-up Phases
 
-- Python audio Worker and voice cloning should be handled in a later change after first-phase TTS is stable.
+- Python audio Worker, local voice cloning, and voice conversion should be handled in a later change after first-phase MiMo cloud TTS modes are stable.
 - Video Provider or Python video Worker integration should be handled in a later change after selecting the first video MVP provider.
 - Agent-driven media workflows should be handled in a later change after task APIs and media tools are reliable.

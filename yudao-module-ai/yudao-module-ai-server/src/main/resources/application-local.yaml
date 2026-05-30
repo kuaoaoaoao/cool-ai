@@ -140,6 +140,11 @@ yudao:
     media:
       tts:
         quota-lock-strict: false # 本地/单测无 Redisson 时允许降级为 count 校验；生产建议保持默认 true
+      worker:
+        enable: true
+        base-url: http://127.0.0.1:8099
+        auth-token: worker-secret
+        callback-url: http://127.0.0.1:48080/admin-api/ai/media/task/callback/python-worker
   security:
     mock-enable: true
   access-log: # 访问日志的配置项

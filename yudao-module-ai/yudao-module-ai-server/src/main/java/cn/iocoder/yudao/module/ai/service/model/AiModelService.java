@@ -7,6 +7,7 @@ import cn.iocoder.yudao.module.ai.controller.admin.model.vo.AiModelConnectionTes
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelPageReqVO;
 import cn.iocoder.yudao.module.ai.controller.admin.model.vo.model.AiModelSaveReqVO;
 import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
+import cn.iocoder.yudao.module.ai.enums.model.AiModelSceneEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiModelTypeEnum;
 import dev.tinyflow.core.Tinyflow;
 import jakarta.validation.Valid;
@@ -64,6 +65,17 @@ public interface AiModelService {
      * @return 模型
      */
     AiModelDO getRequiredDefaultModel(Integer type);
+
+    /**
+     * 获得指定场景默认模型。
+     *
+     * 如果没有配置场景模型，会按旧的模型类型默认规则兜底。
+     *
+     * @param scene 场景
+     * @param fallbackType 兜底模型类型
+     * @return 模型
+     */
+    AiModelDO getRequiredDefaultModel(AiModelSceneEnum scene, AiModelTypeEnum fallbackType);
 
     /**
      * 获得模型分页

@@ -37,6 +37,40 @@ public class AiRemoteResourceService {
     private String trustedHosts;
 
     public byte[] download(String url, long maxBytes) {
+        return download(url, maxBytes, false);
+    }
+
+    public byte[] downloadPrivateUrl(String url, long maxBytes) {
+        return download(url, maxBytes, true);
+    }
+
+    public boolean isPrivateUrl(String url) {
+        if (StrUtil.isBlank(url)) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(url.trim());
+            String scheme = uri.getScheme();
+            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                return false;
+            }
+            String host = uri.getHost();
+            if (StrUtil.isBlank(host)) {
+                return false;
+            }
+            InetAddress[] addresses = InetAddress.getAllByName(host);
+            for (InetAddress address : addresses) {
+                if (isPrivateAddress(address)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private byte[] download(String url, long maxBytes, boolean allowPrivateAccess) {
         if (StrUtil.isBlank(url)) {
             throw invalidParamException("文件 URL 不能为空");
         }
@@ -44,7 +78,7 @@ public class AiRemoteResourceService {
             throw invalidParamException("文件大小限制配置不正确");
         }
         try {
-            return download(URI.create(url.trim()), maxBytes, 0);
+            return download(URI.create(url.trim()), maxBytes, 0, allowPrivateAccess);
         } catch (IllegalArgumentException e) {
             throw invalidParamException("文件 URL 格式不正确");
         } catch (ServiceException e) {
@@ -55,8 +89,8 @@ public class AiRemoteResourceService {
         }
     }
 
-    private byte[] download(URI uri, long maxBytes, int redirectCount) throws Exception {
-        validateUri(uri);
+    private byte[] download(URI uri, long maxBytes, int redirectCount, boolean allowPrivateAccess) throws Exception {
+        validateUri(uri, allowPrivateAccess);
         URL target = toAsciiUrl(uri);
         HttpURLConnection connection = (HttpURLConnection) target.openConnection();
         connection.setInstanceFollowRedirects(false);
@@ -74,7 +108,7 @@ public class AiRemoteResourceService {
                 if (StrUtil.isBlank(location)) {
                     throw invalidParamException("远程文件重定向地址为空");
                 }
-                return download(uri.resolve(location), maxBytes, redirectCount + 1);
+                return download(uri.resolve(location), maxBytes, redirectCount + 1, allowPrivateAccess);
             }
             if (status < 200 || status >= 300) {
                 throw invalidParamException("远程文件响应状态异常：{}", status);
@@ -95,7 +129,7 @@ public class AiRemoteResourceService {
         return URI.create(uri.toASCIIString()).toURL();
     }
 
-    private void validateUri(URI uri) throws Exception {
+    private void validateUri(URI uri, boolean allowPrivateAccess) throws Exception {
         String scheme = uri.getScheme();
         if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
             throw invalidParamException("仅支持 http/https 文件 URL");
@@ -103,6 +137,9 @@ public class AiRemoteResourceService {
         String host = uri.getHost();
         if (StrUtil.isBlank(host)) {
             throw invalidParamException("文件 URL Host 不能为空");
+        }
+        if (allowPrivateAccess) {
+            return;
         }
         if (Boolean.TRUE.equals(allowPrivateUrl) || getTrustedHostSet().contains(host.toLowerCase(Locale.ROOT))) {
             return;

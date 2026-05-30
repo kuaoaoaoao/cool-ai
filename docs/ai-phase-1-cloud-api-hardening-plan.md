@@ -1,6 +1,29 @@
-# AI 第一阶段云 API 与现有功能完善设计
+# AI 第一阶段云 API 与现有功能完善设计与进度
 
-> 目标：第一阶段不进入本地模型、音色克隆、视频生成、人物替换等重型能力开发；先把当前代码里已经存在的 AI 对话、写作、思维导图、绘图、音乐、TTS、知识库、工作流、模型配置、任务框架完善到可配置、可测试、可运维、可验收的状态。
+> 目标：第一阶段不进入本地模型训练、视频生成、人物替换、Python Worker 等重型能力开发；先把当前代码里已经存在的 AI 对话、写作、思维导图、绘图、音乐、TTS、知识库、工作流、模型配置、任务框架完善到可配置、可测试、可运维、可验收的状态。
+
+## 0. 当前进度快照
+
+更新时间：2026-05-29
+
+第一阶段整体状态：**基本完成，进入收尾验收和文档同步阶段**。
+
+已经完成的核心闭环：
+
+- AI 对话、写作、思维导图、绘图、音乐、TTS、知识库、模型配置等既有功能已完成主要可用性补齐，并经过人工功能测试。
+- 模型/API Key 管理已补充测试连接能力；图片模型测试连接采用“构造模型 + 跳过真实绘图”的方式，避免后台连通性测试消耗额度。
+- AI 对话附件下载已加入远程资源下载防护，默认禁止内网/本机地址下载，降低 SSRF 风险；本地调试可通过 `application-local.yaml` 放开。
+- TTS 已形成 `ai_media_task` 统一任务闭环，支持 Xiaomi MiMo 预置音色、音色克隆、文字设计音色三种云 API 模式，并保存生成音频到文件服务。
+- 音色库已支持预置音色、克隆样本、设计提示词的管理、预览和模式切换；保存/更新时会清理无关字段，避免脏数据影响执行。
+- TTS 配额锁已补充严格模式，生产默认严格失败，本地/单测可降级为 count 校验。
+- 后端编译验证通过：`yudao-module-ai/yudao-module-ai-server` 在 JDK 17 下 `-DskipTests compile` 成功。
+
+仍建议作为上线前收尾处理的事项：
+
+- 轮换并移除仓库配置中出现过的真实或疑似真实密钥，生产密钥统一放入 Nacos、环境变量、数据库或本地私有配置。
+- 对用户已测通的功能补一份轻量验收记录，包括使用的 provider、模型、是否真实扣费、失败截图或日志摘要。
+- 生产知识库不要使用默认内存向量库，建议明确 Redis Stack、Qdrant 或 Milvus 的部署方案。
+- 第二阶段开始前，先确定视频生成/人物替换/本地 Worker 的第一个 MVP 能力，避免同时铺开过多高成本方向。
 
 ## 1. 阶段边界
 
@@ -9,11 +32,11 @@
 - 完善现有云 API 接入链路：`ai_api_key -> ai_model -> AiModelService -> AiModelFactory -> 业务功能`。
 - 让后台配置、前端入口、后端执行、任务同步、错误提示、日志、测试验证形成闭环。
 - 优先保证现有功能真实可用：AI 对话、AI 写作、AI 思维导图、AI 绘图、AI 音乐、AI TTS、AI 知识库、AI 工作流基础测试。
-- 为后续音色克隆、视频生成、人物替换预留边界，但不在第一阶段实现。
+- 为后续视频生成、人物替换、本地语音/视频模型和 Python Worker 预留边界。
 
 ### 1.2 第一阶段不做
 
-- 不做音色克隆模型接入。
+- 不做本地音色克隆模型训练或私有推理服务。
 - 不做视频生成、人物替换、数字人、换脸、口型同步。
 - 不接 Python Worker。
 - 不训练或部署本地大模型。
@@ -23,12 +46,12 @@
 第一阶段
   ├─ 文本云能力：对话 / 写作 / 导图 / 工作流基础
   ├─ 图片云能力：普通绘图 / Midjourney Proxy
-  ├─ 音频云能力：Suno 音乐 / Xiaomi MiMo TTS
+  ├─ 音频云能力：Suno 音乐 / Xiaomi MiMo TTS / MiMo 云音色克隆与设计
   ├─ 知识库能力：Embedding / 检索 / 可选 Rerank
   └─ 平台能力：模型配置 / 密钥检测 / 任务状态 / 日志 / 测试
 
 第二阶段以后
-  ├─ 音色克隆
+  ├─ 本地音色克隆 / 语音转换 / 语音资产生产化
   ├─ 视频生成
   ├─ 人物替换
   ├─ Python Worker
@@ -39,17 +62,17 @@
 
 | 功能 | 当前状态 | 第一阶段判断 | 主要缺口 |
 | --- | --- | --- | --- |
-| 模型/API Key 管理 | 已有后台 CRUD 和模型工厂 | 需要完善 | 缺少连通性测试、默认模型校验、配置向导 |
-| AI 对话 | 云模型工厂已覆盖多平台 | 可作为第一阶段核心 | 需要端到端冒烟、错误提示、默认模型检查 |
-| AI 写作 | 复用 Chat 模型 | 可作为第一阶段核心 | 需要确认模型选择、历史记录、流式异常处理 |
-| AI 思维导图 | 复用 Chat 模型流式生成 | 可作为第一阶段核心 | 需要默认模型和输出格式稳定性校验 |
-| AI 绘图 | 支持多云图像模型 + Midjourney Proxy | 可作为第一阶段核心 | 需要模型能力校验、Midjourney 回调/同步配置 |
-| AI 音乐 | Suno Proxy 链路已存在 | 可作为第一阶段核心 | 需要代理健康检查、同步任务、API Key 使用策略 |
-| TTS 语音合成 | Xiaomi MiMo TTS 已接入 | 可作为第一阶段核心 | 需要前端体验、音色/格式配置、真实 API 验证 |
-| 知识库 | Embedding + VectorStore 已有 | 可作为第一阶段增强 | 默认 SimpleVectorStore 不适合生产，Rerank 未纳入后台模型管理 |
-| AI 工作流 | Tinyflow 已有基础 | 第一阶段做最小完善 | 目前只映射 TongYi/Ollama，未统一复用全部 Chat 云模型 |
+| 模型/API Key 管理 | 已有后台 CRUD、模型工厂和测试连接 | 第一阶段已补齐主要能力 | 仍需生产密钥治理、默认模型体验继续打磨 |
+| AI 对话 | 云模型工厂已覆盖多平台，附件下载已加安全防护 | 第一阶段核心已可验收 | 继续补端到端验收记录和多模态模型能力标识 |
+| AI 写作 | 复用 Chat 模型 | 第一阶段核心已可验收 | 继续确认模板与异常提示 |
+| AI 思维导图 | 复用 Chat 模型流式生成 | 第一阶段核心已可验收 | 继续关注输出格式稳定性 |
+| AI 绘图 | 支持多云图像模型 + Midjourney Proxy，连接测试避免真实绘图消耗 | 第一阶段核心已可验收 | Midjourney 回调/同步配置需按环境确认 |
+| AI 音乐 | Suno Proxy 链路已存在，并保留 Xiaomi MiMo 音乐/语音模式扩展 | 第一阶段核心已可验收 | Proxy 稳定性和合规风险需上线前确认 |
+| TTS 语音合成 | Xiaomi MiMo TTS 已接入，支持预置音色、克隆、设计三种云模式 | 第一阶段核心已可验收 | 需真实 Key 的最终冒烟和计费/配额记录 |
+| 知识库 | Embedding + VectorStore 已有 | 第一阶段增强已可用 | 默认 SimpleVectorStore 不适合生产，Rerank 未纳入后台模型管理 |
+| AI 工作流 | Tinyflow 已有基础 | 第一阶段保留最小可用 | 目前只映射 TongYi/Ollama，后续建议统一复用 Chat 云模型 |
 | 视频/人物替换 | 只有枚举和规划痕迹 | 不进第一阶段 | 第二阶段单独设计 |
-| 音色克隆 | 无执行链路 | 不进第一阶段 | 第二阶段结合本地模型或云 API 单独设计 |
+| 音色克隆 | MiMo 云 TTS voiceclone 已纳入 TTS 模式；本地克隆未接 | 第一阶段只覆盖云 API 模式 | 第二阶段再做本地模型、样本治理和资产生产化 |
 
 ## 3. 核心架构整理
 
@@ -322,28 +345,31 @@ AiModelFactoryImpl
 ### 现状
 
 - 已有统一 `ai_media_task` 任务基础。
-- 当前只支持 `XiaomiMiMo / mimo-v2.5-tts`。
-- 前端已有 TTS 和媒体任务管理相关改动。
+- 已支持 `XiaomiMiMo / mimo-v2.5-tts`、`mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign` 三类云 TTS 模型。
+- 已有音色库、TTS 页面、媒体任务管理相关改动。
+- 已支持生成结果保存到文件服务，并在媒体任务输出中记录文件引用。
 
 ### 问题
 
-- 目前只是普通 TTS，不是音色克隆。
-- `voice`、`format` 等选项需要从字典或 provider 配置中形成稳定选择。
-- 需要真实云 API 验证返回格式、错误格式、音频保存。
+- MiMo 云音色克隆/设计已接入，但这仍然是云 TTS 能力，不等同于第二阶段要做的本地语音模型训练、声纹资产生产化或语音转换平台。
+- `voice`、`format`、`voiceMode`、样本格式等选项需要继续保持字典或 provider 配置可维护。
+- 上线前需要用真实云 API 记录最终验收：返回格式、错误格式、音频保存、额度消耗和限流。
 
-### 第一阶段要完善
+### 第一阶段已完善
 
 - TTS 配置向导：
-  - 创建 API Key：平台 `XiaomiMiMo`，URL 可空或 `https://api.xiaomimimo.com`。
-  - 创建模型：类型 `VOICE`，模型名 `mimo-v2.5-tts`，设为默认。
+  - 创建 API Key：平台 `XiaomiMiMo`，URL 可空、`https://api.xiaomimimo.com` 或 `https://api.xiaomimimo.com/v1`。
+  - 创建模型：类型 `VOICE`，模型名按模式选择 `mimo-v2.5-tts`、`mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign`。
   - 配置权限：`ai:media:tts:create` 和任务查看权限。
 - 前端 TTS 页面完善：
-  - 文本输入、风格提示、音色、格式。
+  - 文本输入、风格提示、音色模式、预置音色、克隆样本、设计提示词、格式。
   - 生成中状态、生成结果播放器、下载入口。
   - 历史任务列表。
 - 服务端任务完善：
   - 创建任务、执行、保存文件、更新状态。
   - 明确失败状态：鉴权失败、响应无音频、文件保存失败、超时。
+  - 音色克隆要求确认已获得声音授权，并限制样本类型与大小。
+  - 生产默认开启 TTS 配额锁严格模式，避免并发绕过用量限制。
 - 字典/配置：
   - 音色列表先配置为可维护数据，不硬编码在页面。
   - 格式限制为 provider 支持值。
@@ -353,6 +379,7 @@ AiModelFactoryImpl
 - 使用真实小米 MiMo Key 能生成一段音频。
 - 任务成功后文件服务返回可播放 URL。
 - 失败时 `ai_media_task` 保留错误码和错误消息。
+- 使用预置音色、克隆样本、文字设计音色分别完成一次验收，且样本授权确认、样本格式、样本大小校验生效。
 
 ## 4.8 知识库
 
@@ -569,7 +596,7 @@ AiModelFactoryImpl
 | Midjourney/Suno Proxy 不稳定 | 异步任务卡住 | 健康检查 + 同步 Job + 超时失败 |
 | SimpleVectorStore 不适合生产 | 知识库数据丢失或多实例不一致 | 文档明确生产配置 Redis/Qdrant/Milvus，后续配置化 |
 | 工作流只支持少量模型 | 用户误以为所有模型都可跑 | 第一阶段先限制可选模型，推荐实现统一适配 |
-| 视频/音色克隆需求混入 | 阶段失焦 | 页面和文档标注“第二阶段能力” |
+| 视频/本地音色模型需求混入 | 阶段失焦 | 页面和文档标注“第二阶段能力”；MiMo 云 TTS 音色克隆/设计作为第一阶段 TTS 模式管理 |
 
 ## 9. 第一阶段完成定义
 
@@ -581,7 +608,7 @@ AiModelFactoryImpl
 - 工作流至少有一个云模型路径可测试成功。
 - Midjourney 和 Suno 的代理、回调、同步任务有明确配置说明。
 - 每个功能失败时都有可读错误，不再只表现为页面无响应或任务卡住。
-- 视频生成、人物替换、音色克隆被明确标记为第二阶段，不影响第一阶段验收。
+- 视频生成、人物替换、本地语音模型和 Python Worker 被明确标记为第二阶段，不影响第一阶段验收。
 
 ## 10. 文档与当前实现偏差校准
 
@@ -598,8 +625,8 @@ AiModelFactoryImpl
 | OpenAI 图片 | 可配置 OpenAI 图片模型 | 当前种子数据偏向 `dall-e-2/dall-e-3`，前端也有 DALL-E 组件 | 需新增“GPT Image 兼容性评估/迁移”任务 |
 | 音乐 | Suno Proxy | 代码只对接 Suno Proxy，非官方 Suno 云 API | 文档准确，但需要强调合规和稳定性风险 |
 | Suno API Key | 需要 API Key 策略 | `getOrCreateSunoApi(apiKey, url)` 接收 key，但 `SunoApi` 构造只用 URL | 需要修正代码或文档明确“当前 key 不生效” |
-| TTS | Xiaomi MiMo | 代码仅允许 `XiaomiMiMo / mimo-v2.5-tts` | 文档准确 |
-| 音色克隆 | 不进第一阶段 | 小米 MiMo 官方 TTS 系列有 voice clone/design 模型，但当前代码未接 | 第一阶段仍不做，文档边界正确 |
+| TTS | Xiaomi MiMo | 代码支持 `mimo-v2.5-tts`、`mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign` | 文档已修正为云 TTS 三模式 |
+| 音色克隆 | 本地模型不进第一阶段 | MiMo 云 voiceclone 已通过 TTS/音色库链路接入；本地模型、语音资产生产化未接 | 第一阶段边界修正为“只做云 API 模式，不做本地推理/训练” |
 | 知识库向量库 | 需要生产化 | 代码硬编码返回 `SimpleVectorStore`，其他向量库代码被注释 | 文档准确，需要配置化 |
 | Rerank | 可选增强 | 不是后台模型管理，依赖 Spring 配置注入 | 文档准确 |
 | 工作流 | 半接入 | Tinyflow 只支持 TongYi/Ollama | 文档准确，需要至少限制可选模型或做统一适配 |
@@ -617,7 +644,7 @@ AiModelFactoryImpl
 | 对话/写作/导图 | DeepSeek 或阿里百炼 DashScope | 成本较低，代码已支持，适合中文 | 开通账号、创建 API Key、充值小额额度 |
 | 知识库 Embedding | 阿里百炼 DashScope `text-embedding-v3` 或 `text-embedding-v4` | 代码已有 TongYi Embedding；中文 RAG 够用 | 开通百炼，确认 embedding 模型可调用 |
 | 普通绘图 | 阿里百炼 Wanx 或 Stability AI | 代码已有 TongYi/Stability 图像入口 | 开通图像生成模型，充值测试额度 |
-| TTS 语音合成 | Xiaomi MiMo `mimo-v2.5-tts` | 当前唯一已实现 TTS Provider | 申请 MiMo API Key，开通 TTS |
+| TTS 语音合成 | Xiaomi MiMo TTS 系列 | 当前已实现 TTS Provider 和音色库链路 | 申请 MiMo API Key，按需开通普通 TTS、voiceclone、voicedesign |
 | 文件存储 | 项目现有 infra 文件服务 | 图片/音频结果必须保存 | 确认本地/OSS/S3 配置可访问 |
 
 最小闭环可以先不买 Midjourney、Suno、OpenAI、Claude、Gemini。第一阶段先保证“能用”，再扩服务商。
@@ -628,14 +655,14 @@ AiModelFactoryImpl
 | --- | --- | --- | --- | --- |
 | P0 必需 | 一个 Chat 服务：DeepSeek 或 DashScope | 对话、写作、导图 | 已接 | 必需 |
 | P0 必需 | 一个 Embedding 服务：DashScope 或 OpenAI | 知识库 | 已接 | 必需，如果要做知识库 |
-| P0 必需 | Xiaomi MiMo | TTS | 已接 `mimo-v2.5-tts` | 必需，如果要做语音合成 |
+| P0 必需 | Xiaomi MiMo | TTS | 已接 `mimo-v2.5-tts`、`mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign` | 必需，如果要做语音合成 |
 | P1 建议 | DashScope Wanx / 智谱 CogView / Stability AI | 普通绘图 | 已接部分模型 | 建议选一个 |
 | P1 建议 | Redis/Qdrant/Milvus | 生产知识库向量库 | 代码有但未启用 | 生产环境建议 |
 | P2 可选 | Suno + Suno Proxy | 音乐生成 | 只接 Proxy | 可选，需接受非官方代理风险 |
 | P2 可选 | Midjourney Proxy | 高质量绘图 | 只接 Proxy | 可选，配置复杂 |
 | P2 可选 | OpenAI / Azure OpenAI | Chat、Embedding、Image | 已接 | 海外或高质量场景再买 |
 | P3 暂不买 | 视频模型 API | 视频生成 | 无执行链路 | 第二阶段 |
-| P3 暂不买 | 音色克隆 API/模型 | 音色克隆 | 无执行链路 | 第二阶段 |
+| P3 暂不买 | 本地音色克隆模型/语音转换模型 | 本地语音推理 | 无 Python Worker 和本地模型执行链路 | 第二阶段 |
 
 ### 11.3 按功能可选服务商
 
@@ -646,12 +673,12 @@ AiModelFactoryImpl
 | AI 思维导图 | 复用 Chat 平台 | 同 Chat，优先选格式服从好的模型 |
 | AI 绘图 | TongYi、YiYan、ZhiPu、OpenAI、SiliconFlow、StableDiffusion、Midjourney Proxy | 先选 TongYi Wanx 或 Stability；Midjourney 先作为可选 |
 | AI 音乐 | Suno Proxy | 可选，需部署/购买 Proxy 能力 |
-| TTS | XiaomiMiMo | 只选 `mimo-v2.5-tts` |
+| TTS | XiaomiMiMo | 普通合成选 `mimo-v2.5-tts`；需要云音色克隆/设计时再开 `mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign` |
 | 知识库 Embedding | TongYi、YiYan、ZhiPu、MiniMax、OpenAI、AzureOpenAI、Ollama | 先选 TongYi `text-embedding-v3/v4` |
 | Rerank | Spring 配置注入，偏 DashScope | 可选，先不阻塞 |
 | 工作流 | 当前只 TongYi、Ollama | 第一阶段先用 TongYi |
 | 视频/人物替换 | 无可执行 Provider | 暂不买 |
-| 音色克隆 | 无可执行 Provider | 暂不买，MiMo voice clone 后续单独接 |
+| 音色克隆 | XiaomiMiMo 云 voiceclone 已可走 TTS；本地模型无执行 Provider | 云能力按需开通；本地模型第二阶段再做 |
 
 ## 12. 你需要跟进申请/购买的清单
 
@@ -664,8 +691,8 @@ AiModelFactoryImpl
   - 用于 Embedding：优先 `text-embedding-v3`，新项目可评估 `text-embedding-v4`。
   - 用于绘图：优先 Wanx 系列，先确认当前 Spring AI/代码支持的模型 ID。
 - 申请 Xiaomi MiMo API Key：
-  - 第一阶段只开 `mimo-v2.5-tts`。
-  - 暂不买 `mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign`，因为代码没接。
+  - 普通 TTS 至少开通 `mimo-v2.5-tts`。
+  - 如要验收音色库里的克隆/设计模式，再开通 `mimo-v2.5-tts-voiceclone`、`mimo-v2.5-tts-voicedesign`。
 - 准备文件存储：
   - 本地开发可用本地文件服务。
   - 演示/生产建议 OSS/S3/MinIO，确保生成图片和音频能公网或内网访问。
@@ -693,7 +720,7 @@ AiModelFactoryImpl
 
 - 不要购买视频生成 API 套餐，当前没有代码执行入口。
 - 不要购买人物替换/换脸 API 套餐，当前没有代码执行入口。
-- 不要为音色克隆单独购买模型套餐，当前只实现普通 TTS。
+- 不要为本地音色克隆/语音转换购买模型或 GPU 资源，当前还没有 Python Worker 和本地推理执行链路；MiMo 云 voiceclone/voicedesign 可按第一阶段功能验收需要开通。
 - 不要同时买太多 Chat 服务商，先跑通一个主力模型，避免调试变量过多。
 
 ## 13. 第一阶段新增开发任务补充
@@ -717,7 +744,7 @@ AiModelFactoryImpl
 
 - 模型表单按平台和类型给出能力提示。
 - 用户功能页进入时检查默认模型。
-- 对暂不可执行类型：`VIDEO`、`RERANK`、音色克隆，给出“第一阶段暂未开放”提示。
+- 对暂不可执行类型：`VIDEO`、`RERANK`、人物替换、本地音色模型，给出“第一阶段暂未开放”提示。
 
 ### P1：OpenAI 图片模型兼容性评估
 
@@ -732,7 +759,53 @@ AiModelFactoryImpl
 - Suno 增加代理鉴权策略，否则后台 Key 配置没有意义。
 - Midjourney 增加 notify-url 可访问性检查或同步 Job 提示。
 
-## 14. 参考资料
+## 14. 第二阶段主要方向
+
+第二阶段建议从“继续补 provider”转向“媒体生成平台化”。第一阶段已经验证了统一媒体任务、Provider Adapter、文件保存、任务轮询和聊天工具入口，第二阶段应把这些基础扩展到更长耗时、更高成本、更敏感的音视频能力。
+
+### 14.1 建议主线
+
+1. 视频生成 MVP：
+   - 先选一个第三方视频 Provider，做 `TEXT_TO_VIDEO` 或 `IMAGE_TO_VIDEO` 的最小闭环。
+   - 复用 `ai_media_task`：提交任务、轮询进度、保存结果视频、失败重试、配额控制。
+   - 前端先做轻量任务页，不做完整时间线剪辑器。
+
+2. Python Worker 边界：
+   - 建一个最小 FastAPI Worker 契约，先支持健康检查、任务提交、状态回调、结果上传。
+   - Java 只管任务、鉴权、租户、文件、回调、审计；模型推理、FFmpeg、CUDA 环境放在 Worker。
+   - 后续并发上来后，再从 HTTP 提交演进到 MQ Worker。
+
+3. 人物替换/换脸/虚拟试穿：
+   - 作为敏感能力单独设计权限、确认、素材归属、审计日志、水印和开关。
+   - MVP 可以先只支持一个固定 Provider 或一个 Worker 模型，不要一开始做多模型编排。
+
+4. 语音能力生产化：
+   - MiMo 云音色克隆/设计已能作为第一阶段 TTS 模式使用。
+   - 第二阶段重点应放在音色资产管理、授权证明、样本审核、复用范围、结果追踪，以及可选的本地 voice clone/voice conversion Worker。
+
+5. 媒体资产与治理：
+   - 建立统一媒体资产视图：源文件、结果文件、任务、Provider、用户、租户、使用次数、过期时间。
+   - 增加内容安全、敏感操作确认、结果水印、成本统计、配额面板和清理策略。
+
+### 14.2 第二阶段优先级建议
+
+| 优先级 | 方向 | 原因 |
+| --- | --- | --- |
+| P0 | 视频生成 MVP Provider | 用户感知强，能最快证明第二阶段价值 |
+| P0 | 媒体任务异步化增强 | 视频任务耗时长，必须补排队、回调、超时、重试 |
+| P1 | Python Worker 最小契约 | 为本地模型、人物替换、视频后处理打基础 |
+| P1 | 敏感能力安全控制 | 人物替换和声音克隆必须有授权、确认、审计 |
+| P1 | 媒体资产管理 | 否则任务结果多了之后难查询、难清理、难控成本 |
+| P2 | 工作流/Agent 媒体编排 | 等单项能力稳定后，再做多步骤创作链路 |
+
+### 14.3 第二阶段暂缓项
+
+- 暂缓完整视频剪辑器、时间线编辑器和复杂字幕包装。
+- 暂缓同时接入多个视频 Provider，先跑通一个可控 MVP。
+- 暂缓大规模本地模型训练，先以推理 Worker 和第三方 API 为主。
+- 暂缓实时音视频对话，先完成离线生成任务闭环。
+
+## 15. 参考资料
 
 - [OpenAI Images 文档](https://platform.openai.com/docs/guides/image-generation?lang=javascript)：GPT Image 模型、DALL-E 兼容与弃用信息。
 - [OpenAI Models 文档](https://platform.openai.com/docs/models)：当前 OpenAI Chat、Image、Embedding、Audio 模型列表。
@@ -744,9 +817,9 @@ AiModelFactoryImpl
 - [Stability AI Getting Started](https://platform.stability.ai/docs/getting-started)：账号、API Key、Credits。
 - [gcui-art/suno-api](https://github.com/gcui-art/suno-api)：当前项目音乐功能所依赖的 Suno Proxy 接口。
 
-## 15. OpenAI 协议与 Anthropic 协议兼容策略
+## 16. OpenAI 协议与 Anthropic 协议兼容策略
 
-### 15.1 为什么要关注“协议”
+### 16.1 为什么要关注“协议”
 
 现在很多大模型服务商不只提供自己的 SDK，还会提供“OpenAI 兼容接口”或“Anthropic/Claude 兼容接口”。这意味着接入一个新服务商时，不一定要为它写完整新 Adapter：
 
@@ -762,7 +835,7 @@ AiModelFactoryImpl
 能力 capability：CHAT / IMAGE / EMBEDDING / RERANK / TTS / MUSIC
 ```
 
-### 15.2 两种协议的核心区别
+### 16.2 两种协议的核心区别
 
 | 项目 | OpenAI Chat Completions 协议 | Anthropic Messages 协议 |
 | --- | --- | --- |
@@ -778,7 +851,7 @@ AiModelFactoryImpl
 
 另外，OpenAI 自己现在也在推动 `Responses API`。但行业里说“OpenAI 兼容协议”时，大多数仍然指 `/v1/chat/completions` 这套 Chat Completions 形态。第一阶段建议先兼容 Chat Completions，不急着把 Responses API 作为主协议。
 
-### 15.3 当前系统已经支持到什么程度
+### 16.3 当前系统已经支持到什么程度
 
 | 协议/兼容方式 | 当前代码现状 | 可用方式 |
 | --- | --- | --- |
@@ -791,7 +864,7 @@ AiModelFactoryImpl
 
 当前代码里已经有很多“复用 OpenAI 客户端”的实现，例如 Gemini、Grok、豆包、混元、硅基流动、百川等都有 OpenAI 兼容复用痕迹。这说明系统方向是对的，但后台配置还没有把“协议兼容”作为一等概念。
 
-### 15.4 第一阶段是否需要兼容
+### 16.4 第一阶段是否需要兼容
 
 需要，但第一阶段建议采用“轻改造”：
 
@@ -804,7 +877,7 @@ AiModelFactoryImpl
 
 这能最快支持第三方聚合平台、自建 OpenAI-compatible 网关、Claude-compatible 网关。
 
-### 15.5 推荐改进方案
+### 16.5 推荐改进方案
 
 #### 方案 A：第一阶段轻量兼容
 
@@ -857,7 +930,7 @@ AiProtocolAdapterFactory
 
 缺点：涉及 DB、前端表单、服务层和迁移，第一阶段不是必须。
 
-### 15.6 第一阶段新增任务
+### 16.6 第一阶段新增任务
 
 把以下任务加入第一阶段 P1：
 
@@ -877,7 +950,7 @@ AiProtocolAdapterFactory
   - 官方说明它更适合测试比较。
   - 生产要完整 Claude 能力，优先使用 Anthropic 原生 Messages API。
 
-### 15.7 采购与申请清单修正
+### 16.7 采购与申请清单修正
 
 新增一条采购原则：
 
@@ -885,7 +958,7 @@ AiProtocolAdapterFactory
 - 如果购买 Claude/Anthropic，优先确认是否需要 Claude 原生能力；如果需要 PDF、缓存、扩展思考、Claude 原生工具能力，走 `Anthropic` 平台，不要只走 OpenAI 兼容层。
 - 第三方聚合平台如果同时提供 OpenAI 协议和 Anthropic 协议，第一阶段优先接 OpenAI Chat Completions 协议，除非明确要 Claude 原生能力。
 
-### 15.8 参考资料补充
+### 16.8 参考资料补充
 
 - [OpenAI API Overview](https://developers.openai.com/api/reference/overview)：OpenAI API 鉴权、请求 ID、REST/streaming 说明。
 - [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat/create)：OpenAI Chat Completions 请求与响应结构。
@@ -894,9 +967,9 @@ AiProtocolAdapterFactory
 - [Anthropic Messages API](https://platform.claude.com/docs/en/build-with-claude/working-with-messages)：Claude Messages API 请求/响应结构。
 - [Anthropic OpenAI SDK Compatibility](https://platform.claude.com/docs/en/api/openai-sdk)：Anthropic 对 OpenAI SDK 的兼容层及限制。
 
-## 16. AI 对话多模态支持规划
+## 17. AI 对话多模态支持规划
 
-### 16.1 当前实现程度
+### 17.1 当前实现程度
 
 当前聊天页面已经有附件上传入口，前端可以上传图片、PDF、Office、文本等文件，并把附件 URL 作为 `attachmentUrls` 传给后端。
 
@@ -908,7 +981,7 @@ AiProtocolAdapterFactory
 
 这说明当前系统是“附件文本化增强”，不是严格意义上的多模态 Vision 调用。图片并没有作为 Spring AI 的 `Media` 传给模型，而是作为一大段 base64 文本塞进 prompt。普通文本模型通常不能真正理解这张图片，反而会浪费上下文。
 
-### 16.2 结论
+### 17.2 结论
 
 当前 AI 对话：
 
@@ -921,7 +994,7 @@ AiProtocolAdapterFactory
 
 如果小米多模态模型是私有协议，或者需要视频/音频理解，则建议先做接口 spike，再决定是否放第一阶段。
 
-### 16.3 第一阶段支持范围
+### 17.3 第一阶段支持范围
 
 第一阶段建议只做：
 
@@ -937,7 +1010,7 @@ AiProtocolAdapterFactory
 - 多轮历史图片完整回放。
 - 大文件多模态分析。
 
-### 16.4 推荐技术方案
+### 17.4 推荐技术方案
 
 当前 Spring AI 1.1.5 的 `UserMessage` 已支持 `media`：
 
@@ -968,7 +1041,7 @@ ChatModel.call/stream
 
 需要注意：不是所有 `ChatModel` 都支持 media。必须先通过模型能力配置判断。
 
-### 16.5 模型能力标识设计
+### 17.5 模型能力标识设计
 
 短期不改大表结构时，可以先在后台模型名称/备注/配置说明中约定；更稳妥的做法是在 `ai_model` 增加能力字段。
 
@@ -986,7 +1059,7 @@ ChatModel.call/stream
 - 例如把小米多模态模型 ID、OpenAI vision 模型、Claude vision 模型、Gemini vision 模型配置到服务端能力表。
 - 前端根据 `modelId` 查能力，决定是否允许上传图片。
 
-### 16.6 小米多模态模型接入判断
+### 17.6 小米多模态模型接入判断
 
 需要先确认你的小米多模态模型属于哪种协议：
 
@@ -1012,7 +1085,7 @@ ChatModel.call/stream
 - 单次最多图片数量、单张图片大小、支持格式。
 - 是否兼容 OpenAI Chat Completions 的 `image_url` content part。
 
-### 16.7 后端改造任务
+### 17.7 后端改造任务
 
 加入第一阶段 P1：
 
@@ -1035,7 +1108,7 @@ ChatModel.call/stream
   - 图片数量、总大小、mime type、模型 ID、是否使用 vision。
   - 不记录图片 base64 内容。
 
-### 16.8 前端改造任务
+### 17.8 前端改造任务
 
 - 聊天页面根据模型能力控制附件类型：
   - 普通文本模型：允许文档附件，禁止图片多模态或提示会转文本不可理解。
@@ -1053,7 +1126,7 @@ ChatModel.call/stream
   - `联网`
   - `工具调用`
 
-### 16.9 测试与验收
+### 17.9 测试与验收
 
 验收用例：
 
@@ -1064,7 +1137,7 @@ ChatModel.call/stream
 - 图片过大、格式不支持、URL 下载失败都有明确错误。
 - 流式输出正常。
 
-### 16.10 第一阶段采购/申请修正
+### 17.10 第一阶段采购/申请修正
 
 如果要在第一阶段验证小米多模态：
 
@@ -1073,7 +1146,7 @@ ChatModel.call/stream
 - 确认是否兼容 OpenAI 图文协议。
 - 只先购买/开通图文理解额度，不购买视频理解或音频理解额度。
 
-### 16.11 多模态和音色克隆/视频的边界
+### 17.11 多模态和音色克隆/视频的边界
 
 多模态对话中的“图片理解”可以进入第一阶段，因为它是现有聊天附件能力的自然完善。
 
@@ -1082,11 +1155,11 @@ ChatModel.call/stream
 - 视频理解。
 - 视频生成。
 - 人物替换。
-- 音色克隆。
+- 本地音色克隆、语音转换和语音资产生产化。
 - 语音输入对话。
 - 实时音视频对话。
 
-## 17. Xiaomi MiMo 模型接入补充
+## 18. Xiaomi MiMo 模型接入补充
 
 你提供的小米 MiMo 文档说明了一个很关键的点：MiMo 的文本、多模态理解、TTS、音色设计、音色克隆都统一使用类似 OpenAI Chat Completions 的接口形态：
 
@@ -1097,7 +1170,7 @@ ChatModel.call/stream
 
 请求体接近 OpenAI Chat Completions，但鉴权不是标准 `Authorization: Bearer <key>`，而是 `api-key`。因此第一阶段不要假设直接配置为 `OpenAI` 平台就一定能跑通。更稳妥的做法是新增或完善 `XiaomiMiMo` Chat/Multimodal Adapter。
 
-### 17.1 MiMo 模型选型
+### 18.1 MiMo 模型选型
 
 | 系列 | 模型 ID | 能力 | 第一阶段建议 |
 | --- | --- | --- | --- |
@@ -1107,12 +1180,12 @@ ChatModel.call/stream
 | Omni | `mimo-v2-omni` | 全模态理解；上下文 256K，最大输出 128K | 可作为多模态备选 |
 | Flash | `mimo-v2-flash` | 文本生成、深度思考、流式输出、函数调用、结构化输出、联网搜索；上下文 256K，最大输出 64K | 可作为低成本快速文本模型 |
 | TTS | `mimo-v2.5-tts` | 预置音色语音合成，支持唱歌模式，不支持音色设计和音色复刻 | 第一阶段保留并完善 |
-| TTS Voice Design | `mimo-v2.5-tts-voicedesign` | 文本描述生成音色，不支持唱歌、预置音色、音色复刻 | 第二阶段或独立语音增强阶段 |
-| TTS Voice Clone | `mimo-v2.5-tts-voiceclone` | 基于音频样本复刻音色，不支持唱歌、预置音色、音色设计 | 第二阶段，和你已有音色克隆模型一起规划 |
+| TTS Voice Design | `mimo-v2.5-tts-voicedesign` | 文本描述生成音色，不支持唱歌、预置音色、音色复刻 | 已作为第一阶段 TTS 音色库模式接入 |
+| TTS Voice Clone | `mimo-v2.5-tts-voiceclone` | 基于音频样本复刻音色，不支持唱歌、预置音色、音色设计 | 已作为第一阶段 TTS 音色库模式接入；需保留授权确认和样本限制 |
 
 官方快速选型里，复杂推理/长文档推荐 `mimo-v2.5-pro`，图片/音频/视频内容理解推荐 `mimo-v2.5` 或 `mimo-v2-omni`，高并发低成本推荐 `mimo-v2-flash`，普通 TTS 推荐 `mimo-v2.5-tts`。
 
-### 17.2 对话与图片理解调用形态
+### 18.2 对话与图片理解调用形态
 
 图片理解使用 `content` 数组，图片可以传 URL 或 Base64 data URL：
 
@@ -1142,7 +1215,7 @@ ChatModel.call/stream
 
 第一阶段建议把“图片理解”作为 AI 对话的一部分实现，而不是另起一个图片分析功能。原因是系统现在已经有聊天附件能力，只是当前实现把图片 base64 当文本塞进 prompt，并不是真正的多模态。
 
-### 17.3 音频与视频理解调用形态
+### 18.3 音频与视频理解调用形态
 
 音频理解同样走 Chat Completions，并使用 `input_audio` content part：
 
@@ -1178,9 +1251,9 @@ ChatModel.call/stream
 
 真正上线时再处理大文件、上传链路、费用控制、异步任务、超时、内容安全和前端播放体验。
 
-### 17.4 TTS、唱歌、音色设计、音色克隆边界
+### 18.4 TTS、唱歌、音色设计、音色克隆边界
 
-当前代码已经有 `XiaomiMiMo / mimo-v2.5-tts` 的 TTS Provider，因此第一阶段语音合成可以继续使用它做闭环。
+当前代码已经有 `XiaomiMiMo` TTS Provider，并支持普通 TTS、voiceclone、voicedesign 三种云模式，因此第一阶段语音合成和音色库可以继续使用它做闭环。
 
 普通 TTS 调用大致形态：
 
@@ -1226,11 +1299,11 @@ ChatModel.call/stream
 }
 ```
 
-官方文档说明音色克隆样本当前支持 `mp3` 和 `wav`，Base64 编码后的字符串大小不能超过 10MB。这个能力和你已有的音色克隆模型都应放到第二阶段统一设计，因为它涉及样本上传、授权确认、音色资产管理、合规提示、计费控制和生成结果存储。
+官方文档说明音色克隆样本当前支持 `mp3` 和 `wav`，Base64 编码后的字符串大小不能超过 10MB。当前代码已经把 MiMo 云 voiceclone 接入为 TTS 模式；第二阶段需要继续补的是更完整的样本审核、授权证明、音色资产复用范围、审计追踪，以及可选的本地 voice clone/voice conversion Worker。
 
-### 17.5 第一阶段 MiMo 改造任务
+### 18.5 第一阶段 MiMo 改造任务
 
-建议新增到第一阶段任务清单：
+当前建议保留为验收和后续增强清单：
 
 - 后端新增 `XiaomiMiMo` Chat Adapter：
   - 支持 `mimo-v2.5-pro`、`mimo-v2.5`、`mimo-v2-omni`、`mimo-v2-flash`。
@@ -1244,7 +1317,7 @@ ChatModel.call/stream
 - 后端完善 MiMo TTS：
   - 保留 `mimo-v2.5-tts`。
   - 补齐音频格式、预置音色、唱歌模式的配置与验收。
-  - 暂不接 `voiceclone` 和 `voicedesign`。
+  - 已接入 `voiceclone` 和 `voicedesign`，继续补真实 Key 验收、授权提示、计费/限流记录。
 - 前端模型能力展示：
   - `文本`
   - `图片理解`
@@ -1257,7 +1330,7 @@ ChatModel.call/stream
   - Chat 模型优先配置 `mimo-v2.5` 和 `mimo-v2.5-pro`。
   - TTS 模型配置 `mimo-v2.5-tts`。
 
-### 17.6 第一阶段验收用例
+### 18.6 第一阶段验收用例
 
 MiMo 相关验收建议：
 
@@ -1267,9 +1340,11 @@ MiMo 相关验收建议：
 - `mimo-v2.5` 可以上传两张图片并回答“比较这两张图的区别”。
 - 选择 `mimo-v2.5-pro` 或 `mimo-v2-flash` 上传图片时，系统提示“当前模型不支持图片理解，请切换多模态模型”。
 - `mimo-v2.5-tts` 可以生成一段 `wav` 或 `mp3` 音频，并保存到系统文件服务。
+- `mimo-v2.5-tts-voiceclone` 可以在确认声音授权后使用 `mp3/wav` 样本合成音频。
+- `mimo-v2.5-tts-voicedesign` 可以通过文字描述生成音色并合成音频。
 - 未配置 API Key、Key 无效、额度不足、429 限流、文件过大都有清晰错误提示。
 
-### 17.7 你需要准备的 MiMo 事项
+### 18.7 你需要准备的 MiMo 事项
 
 第一阶段需要你跟进：
 
@@ -1280,15 +1355,15 @@ MiMo 相关验收建议：
   - `mimo-v2.5`：多模态图片理解。
   - `mimo-v2-flash`：低成本快速文本。
   - `mimo-v2.5-tts`：普通语音合成。
-- 暂不必购买或正式启用：
   - `mimo-v2.5-tts-voiceclone`。
   - `mimo-v2.5-tts-voicedesign`。
+- 暂不必购买或正式启用：
   - 视频理解的大规模额度。
   - 音频理解的大规模额度。
 
 如果你希望第一阶段就验证“音频理解/视频理解能不能跑通”，可以做一个内部测试开关和最小接口 spike，但不建议把它作为第一阶段正式上线范围。
 
-### 17.8 参考文档
+### 18.8 参考文档
 
 - [Xiaomi MiMo 模型与限速](https://platform.xiaomimimo.com/docs/zh-CN/quick-start/model)
 - [Xiaomi MiMo 图片理解](https://platform.xiaomimimo.com/docs/zh-CN/usage-guide/multimodal-understanding/image-understanding)

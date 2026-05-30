@@ -326,6 +326,12 @@ CREATE TABLE `ai_model`  (
   `type` tinyint NOT NULL COMMENT '模型类型',
   `sort` int NOT NULL COMMENT '排序',
   `status` tinyint NOT NULL COMMENT '状态',
+  `capabilities` json NULL DEFAULT NULL COMMENT '能力标签',
+  `input_modalities` json NULL DEFAULT NULL COMMENT '输入模态',
+  `output_modalities` json NULL DEFAULT NULL COMMENT '输出模态',
+  `options` json NULL DEFAULT NULL COMMENT '模型默认参数',
+  `limits` json NULL DEFAULT NULL COMMENT '模型限制信息',
+  `metadata` json NULL DEFAULT NULL COMMENT '扩展元数据',
   `temperature` double NULL DEFAULT NULL COMMENT '温度参数',
   `max_tokens` int NULL DEFAULT NULL COMMENT '单条回复的最大 Token 数量',
   `max_contexts` int NULL DEFAULT NULL COMMENT '上下文的最大 Message 数量',
@@ -337,6 +343,28 @@ CREATE TABLE `ai_model`  (
   `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
   PRIMARY KEY (`id`) USING BTREE
 ) ENGINE = InnoDB AUTO_INCREMENT = 64 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 模型表';
+
+-- ----------------------------
+-- Table structure for ai_model_scene
+-- ----------------------------
+DROP TABLE IF EXISTS `ai_model_scene`;
+CREATE TABLE `ai_model_scene`  (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '编号',
+  `scene` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '场景编码',
+  `model_id` bigint NOT NULL COMMENT '模型编号',
+  `sort` int NOT NULL DEFAULT 0 COMMENT '排序',
+  `status` tinyint NOT NULL COMMENT '状态',
+  `remark` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '备注',
+  `creator` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT '' COMMENT '创建者',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updater` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT '' COMMENT '更新者',
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` bit(1) NOT NULL DEFAULT b'0' COMMENT '是否删除',
+  `tenant_id` bigint NOT NULL DEFAULT 0 COMMENT '租户编号',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_ai_model_scene_scene`(`tenant_id`, `deleted`, `scene`, `status`, `sort`, `id`) USING BTREE,
+  INDEX `idx_ai_model_scene_model`(`model_id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 模型场景默认配置';
 
 -- ----------------------------
 -- Records of ai_model
