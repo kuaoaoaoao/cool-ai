@@ -1,18 +1,25 @@
 package cn.iocoder.yudao.module.ai.service.media.provider.worker;
 
 import cn.iocoder.yudao.framework.test.core.ut.BaseMockitoUnitTest;
+import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.module.ai.dal.dataobject.media.AiMediaTaskDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiApiKeyDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskStatusEnum;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderException;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderQueryResult;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderSubmitResult;
+import cn.iocoder.yudao.module.ai.service.model.AiApiKeyService;
+import cn.iocoder.yudao.module.ai.service.model.AiModelService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
@@ -22,10 +29,17 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.when;
 
 class PythonWorkerMediaProviderAdapterTest extends BaseMockitoUnitTest {
 
-    private final PythonWorkerMediaProviderAdapter adapter = new PythonWorkerMediaProviderAdapter();
+    @InjectMocks
+    private PythonWorkerMediaProviderAdapter adapter;
+
+    @Mock
+    private AiModelService modelService;
+    @Mock
+    private AiApiKeyService apiKeyService;
 
     private HttpServer server;
 
@@ -50,7 +64,7 @@ class PythonWorkerMediaProviderAdapterTest extends BaseMockitoUnitTest {
         assertTrue(adapter.supports(AiMediaTaskTypeEnum.IMAGE_TO_VIDEO.getType(),
                 AiPlatformEnum.PYTHON_WORKER.getPlatform(), "mock-i2v"));
         ReflectionTestUtils.setField(adapter, "enable", false);
-        assertFalse(adapter.supports(AiMediaTaskTypeEnum.IMAGE_TO_VIDEO.getType(),
+        assertTrue(adapter.supports(AiMediaTaskTypeEnum.IMAGE_TO_VIDEO.getType(),
                 AiPlatformEnum.PYTHON_WORKER.getPlatform(), "mock-i2v"));
     }
 
@@ -61,6 +75,8 @@ class PythonWorkerMediaProviderAdapterTest extends BaseMockitoUnitTest {
                 """);
 
         assertTrue(adapter.healthCheck());
+        assertEquals("healthy", adapter.getHealthStatus().get("status"));
+        assertTrue((Boolean) adapter.getHealthStatus().get("ok"));
     }
 
     @Test
@@ -90,6 +106,37 @@ class PythonWorkerMediaProviderAdapterTest extends BaseMockitoUnitTest {
         assertTrue(requestBody.get().contains("\"callbackUrl\":\"https://app.local/callback/python-worker\""));
         assertEquals("worker-1", result.getProviderTaskId());
         assertEquals(AiMediaTaskStatusEnum.SUBMITTED.getStatus(), result.getStatus());
+    }
+
+    @Test
+    void submit_workerDisabled_fallsBackToApiKeyUrl() throws IOException {
+        AtomicReference<String> authHeader = new AtomicReference<>();
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/tasks", exchange -> {
+            authHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] response = """
+                    {"accepted":true,"workerTaskId":"worker-1"}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        ReflectionTestUtils.setField(adapter, "enable", false);
+        when(modelService.validateModel(1000L)).thenReturn(AiModelDO.builder()
+                .id(1000L).keyId(2000L).platform(AiPlatformEnum.PYTHON_WORKER.getPlatform()).build());
+        when(apiKeyService.validateApiKey(2000L)).thenReturn(AiApiKeyDO.builder()
+                .id(2000L)
+                .platform(AiPlatformEnum.PYTHON_WORKER.getPlatform())
+                .apiKey("api-worker-secret")
+                .url("http://127.0.0.1:" + server.getAddress().getPort())
+                .status(CommonStatusEnum.ENABLE.getStatus())
+                .build());
+
+        AiMediaProviderSubmitResult result = adapter.submit(buildTask());
+
+        assertEquals("Bearer api-worker-secret", authHeader.get());
+        assertEquals("worker-1", result.getProviderTaskId());
     }
 
     @Test
@@ -210,6 +257,7 @@ class PythonWorkerMediaProviderAdapterTest extends BaseMockitoUnitTest {
                 .setUserId(10L)
                 .setTaskType(AiMediaTaskTypeEnum.IMAGE_TO_VIDEO.getType())
                 .setPlatform(AiPlatformEnum.PYTHON_WORKER.getPlatform())
+                .setModelId(1000L)
                 .setModel("mock-i2v")
                 .setInputJson(Map.of(
                         "prompt", "hello",

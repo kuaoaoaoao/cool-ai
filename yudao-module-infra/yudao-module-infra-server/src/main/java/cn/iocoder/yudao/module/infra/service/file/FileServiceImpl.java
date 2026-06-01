@@ -21,6 +21,8 @@ import jakarta.annotation.Resource;
 import lombok.SneakyThrows;
 import org.springframework.stereotype.Service;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static cn.hutool.core.date.DatePattern.PURE_DATE_PATTERN;
@@ -174,9 +176,34 @@ public class FileServiceImpl implements FileService {
     public FileDO getFileByUrl(String url) {
         FileDO file = fileMapper.selectByUrl(url);
         if (file == null) {
+            file = getFileByProjectPath(url);
+        }
+        if (file == null) {
             throw exception(FILE_NOT_EXISTS);
         }
         return file;
+    }
+
+    private FileDO getFileByProjectPath(String url) {
+        String path = parseProjectFilePath(url);
+        if (StrUtil.isBlank(path)) {
+            return null;
+        }
+        FileDO file = fileMapper.selectByPath(path);
+        if (file != null) {
+            return file;
+        }
+        String decodedPath = URLDecoder.decode(path, StandardCharsets.UTF_8);
+        if (!StrUtil.equals(path, decodedPath)) {
+            return fileMapper.selectByPath(decodedPath);
+        }
+        return null;
+    }
+
+    private String parseProjectFilePath(String url) {
+        String cleanUrl = HttpUtils.removeUrlQuery(url);
+        int getIndex = cleanUrl.indexOf("/get/");
+        return getIndex < 0 ? null : StrUtil.subSuf(cleanUrl, getIndex + "/get/".length());
     }
 
     @Override

@@ -173,20 +173,11 @@ spring:
 
 yudao:
   ai:
-    download:
-      allow-private-url: false # 默认禁止下载内网/本机资源，避免 SSRF；本地调试可在 application-local.yaml 放开
     media:
       asset:
         retention-days: 30
       tool:
         image-to-video-enable: false
-      worker:
-        enable: false
-        base-url:
-        auth-token:
-        callback-url:
-        request-timeout-millis: 30000
-        poll-limit: 20
       sensitive:
         person-replacement-enable: false
         local-voice-clone-enable: false

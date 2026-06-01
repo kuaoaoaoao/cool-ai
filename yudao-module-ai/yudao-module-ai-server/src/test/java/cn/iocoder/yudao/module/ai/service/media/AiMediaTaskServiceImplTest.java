@@ -27,6 +27,7 @@ import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderExceptio
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderQueryResult;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderResult;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderSubmitResult;
+import cn.iocoder.yudao.module.ai.service.media.provider.worker.PythonWorkerMediaProviderAdapter;
 import cn.iocoder.yudao.module.ai.service.media.provider.xiaomi.XiaomiMiMoTtsProviderAdapter;
 import cn.iocoder.yudao.module.ai.service.common.AiRemoteResourceService;
 import cn.iocoder.yudao.module.ai.service.model.AiModelService;
@@ -69,6 +70,8 @@ class AiMediaTaskServiceImplTest extends BaseMockitoUnitTest {
     private AiRemoteResourceService remoteResourceService;
     @Mock
     private AiMediaProviderAdapter providerAdapter;
+    @Mock
+    private PythonWorkerMediaProviderAdapter pythonWorkerMediaProviderAdapter;
 
     @BeforeEach
     void setUp() {
@@ -124,6 +127,35 @@ class AiMediaTaskServiceImplTest extends BaseMockitoUnitTest {
         verify(mediaTaskMapper, never()).updateById(any(AiMediaTaskDO.class));
         verify(providerAdapterResolver, never()).resolve(any(AiMediaTaskDO.class));
         assertEquals(1, synchronizations.size());
+    }
+
+    @Test
+    void getProviderHealth_pythonWorkerOk() {
+        ReflectionTestUtils.setField(service, "workerEnable", true);
+        ReflectionTestUtils.setField(service, "workerBaseUrl", "http://127.0.0.1:8099");
+        when(pythonWorkerMediaProviderAdapter.getHealthStatus()).thenReturn(Map.of(
+                "ok", true,
+                "status", "healthy",
+                "mode", "mock"));
+
+        Map<String, Object> result = service.getProviderHealth();
+
+        Map<String, Object> worker = (Map<String, Object>) result.get(AiPlatformEnum.PYTHON_WORKER.getPlatform());
+        assertEquals(true, worker.get("ok"));
+        assertEquals("mock", worker.get("mode"));
+        assertEquals(List.of("aiSiliconFlowVideoSyncJob", "aiPythonWorkerMediaSyncJob"), result.get("xxlJobHandlers"));
+    }
+
+    @Test
+    void getProviderHealth_pythonWorkerFailed() {
+        when(pythonWorkerMediaProviderAdapter.getHealthStatus())
+                .thenThrow(new AiMediaProviderException("WORKER_NETWORK_ERROR", "调用 Python Worker 失败"));
+
+        Map<String, Object> result = service.getProviderHealth();
+
+        Map<String, Object> worker = (Map<String, Object>) result.get(AiPlatformEnum.PYTHON_WORKER.getPlatform());
+        assertEquals(false, worker.get("ok"));
+        assertEquals("WORKER_NETWORK_ERROR", worker.get("errorCode"));
     }
 
     @Test
@@ -786,6 +818,34 @@ class AiMediaTaskServiceImplTest extends BaseMockitoUnitTest {
                 AiMediaTaskStatusEnum.RUNNING.getStatus().equals(update.getStatus())
                         && Integer.valueOf(42).equals(update.getProgress())
                         && "rendering".equals(update.getStage())));
+    }
+
+    @Test
+    void syncPythonWorkerImageToVideoTasks_cancelRequestedProviderCancelled_marksCancelled() {
+        AiMediaTaskDO task = new AiMediaTaskDO()
+                .setId(300L)
+                .setTaskType(AiMediaTaskTypeEnum.IMAGE_TO_VIDEO.getType())
+                .setPlatform(AiPlatformEnum.PYTHON_WORKER.getPlatform())
+                .setModel("mock-i2v")
+                .setStatus(AiMediaTaskStatusEnum.CANCELLING.getStatus())
+                .setProviderTaskId("worker-1")
+                .setOutputJson(Map.of("cancelRequested", true));
+        when(mediaTaskMapper.selectListByTaskTypeAndPlatformAndStatusInAndProviderTaskIdNotEmpty(
+                eq(AiMediaTaskTypeEnum.IMAGE_TO_VIDEO.getType()), eq(AiPlatformEnum.PYTHON_WORKER.getPlatform()),
+                any(), eq(20))).thenReturn(List.of(task));
+        when(mediaTaskMapper.selectById(300L)).thenReturn(task);
+        when(providerAdapterResolver.resolve(task)).thenReturn(providerAdapter);
+        when(providerAdapter.query(task)).thenReturn(new AiMediaProviderQueryResult(
+                AiMediaTaskStatusEnum.CANCELLED.getStatus(), 100, "worker_cancelled",
+                null, null, null, null, Map.of("status", "cancelled")));
+
+        assertEquals(1, service.syncPythonWorkerImageToVideoTasks());
+
+        verify(mediaTaskMapper).updateById(argThat((AiMediaTaskDO update) ->
+                AiMediaTaskStatusEnum.CANCELLED.getStatus().equals(update.getStatus())
+                        && Integer.valueOf(100).equals(update.getProgress())
+                        && "cancelled_by_provider".equals(update.getStage())
+                        && Map.of("status", "cancelled").equals(update.getOutputJson().get("providerStatus"))));
     }
 
     @Test

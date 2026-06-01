@@ -47,6 +47,8 @@ public interface AiMediaTaskService {
 
     Integer syncPythonWorkerImageToVideoTasks();
 
+    Map<String, Object> getProviderHealth();
+
     void handlePythonWorkerCallback(String token, Map<String, Object> payload);
 
     void updateTaskRunning(Long id, String stage);

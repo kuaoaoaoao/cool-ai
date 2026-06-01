@@ -1,5 +1,12 @@
 -- AI 媒体平台 Phase 2：SiliconFlow 图生视频 MVP
 
+-- 平台字典：Python Worker，用于本地/自定义媒体执行器模型配置
+INSERT INTO system_dict_data (sort, label, value, dict_type, status, color_type, css_class, remark, creator, create_time, updater, update_time, deleted)
+SELECT 18, 'Python Worker', 'PythonWorker', 'ai_platform', 0, '', '', '本地或自定义媒体 Worker', '1', NOW(), '1', NOW(), b'0'
+WHERE NOT EXISTS (
+    SELECT 1 FROM system_dict_data WHERE dict_type = 'ai_platform' AND value = 'PythonWorker' AND deleted = b'0'
+);
+
 -- 任务类型字典：图生视频、文生视频预留
 INSERT INTO system_dict_data (sort, label, value, dict_type, status, color_type, css_class, remark, creator, create_time, updater, update_time, deleted)
 SELECT 30, '图生视频', '2', 'ai_media_task_type', 0, 'primary', '', 'SiliconFlow IMAGE_TO_VIDEO', '1', NOW(), '1', NOW(), b'0'

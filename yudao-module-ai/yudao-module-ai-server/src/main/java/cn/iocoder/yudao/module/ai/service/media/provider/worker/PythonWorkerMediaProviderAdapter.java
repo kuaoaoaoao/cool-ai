@@ -4,7 +4,10 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.http.HttpStatus;
+import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
 import cn.iocoder.yudao.module.ai.dal.dataobject.media.AiMediaTaskDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiApiKeyDO;
+import cn.iocoder.yudao.module.ai.dal.dataobject.model.AiModelDO;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskStatusEnum;
 import cn.iocoder.yudao.module.ai.enums.media.AiMediaTaskTypeEnum;
 import cn.iocoder.yudao.module.ai.enums.model.AiPlatformEnum;
@@ -13,6 +16,8 @@ import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderExceptio
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderQueryResult;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderResult;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderSubmitResult;
+import cn.iocoder.yudao.module.ai.service.model.AiApiKeyService;
+import cn.iocoder.yudao.module.ai.service.model.AiModelService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +44,10 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
 
     @Resource
     private ObjectMapper objectMapper;
+    @Resource
+    private AiModelService modelService;
+    @Resource
+    private AiApiKeyService apiKeyService;
 
     @Value("${yudao.ai.media.worker.enable:false}")
     private Boolean enable;
@@ -53,8 +62,7 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
 
     @Override
     public boolean supports(Integer taskType, String platform, String model) {
-        return Boolean.TRUE.equals(enable)
-                && Objects.equals(AiMediaTaskTypeEnum.IMAGE_TO_VIDEO.getType(), taskType)
+        return Objects.equals(AiMediaTaskTypeEnum.IMAGE_TO_VIDEO.getType(), taskType)
                 && Objects.equals(AiPlatformEnum.PYTHON_WORKER.getPlatform(), platform)
                 && StrUtil.isNotBlank(model);
     }
@@ -67,8 +75,8 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
     @Override
     @SneakyThrows
     public AiMediaProviderSubmitResult submit(AiMediaTaskDO task) {
-        validateConfiguration();
-        String body = doPost(TASKS_PATH, objectMapper.writeValueAsString(buildSubmitRequest(task)));
+        WorkerSettings settings = resolveSettings(task);
+        String body = doPost(settings, TASKS_PATH, objectMapper.writeValueAsString(buildSubmitRequest(task)));
         JsonNode root = objectMapper.readTree(body);
         if (!root.path("accepted").asBoolean(false)) {
             throw new AiMediaProviderException("WORKER_REJECTED",
@@ -85,20 +93,20 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
     @Override
     @SneakyThrows
     public AiMediaProviderQueryResult query(AiMediaTaskDO task) {
-        validateConfiguration();
+        WorkerSettings settings = resolveSettings(task);
         if (StrUtil.isBlank(task.getProviderTaskId())) {
             throw new AiMediaProviderException("MISSING_WORKER_TASK_ID", "Python Worker taskId 不能为空");
         }
-        return mapStatus(objectMapper.readTree(doGet(TASKS_PATH + "/" + task.getProviderTaskId())));
+        return mapStatus(objectMapper.readTree(doGet(settings, TASKS_PATH + "/" + task.getProviderTaskId())));
     }
 
     @Override
     public void cancel(AiMediaTaskDO task) {
-        validateConfiguration();
+        WorkerSettings settings = resolveSettings(task);
         if (StrUtil.isBlank(task.getProviderTaskId())) {
             throw new AiMediaProviderException("MISSING_WORKER_TASK_ID", "Python Worker taskId 不能为空");
         }
-        doPost(TASKS_PATH + "/" + task.getProviderTaskId() + "/cancel", "{}");
+        doPost(settings, TASKS_PATH + "/" + task.getProviderTaskId() + "/cancel", "{}");
     }
 
     @Override
@@ -113,10 +121,19 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
 
     @SneakyThrows
     public boolean healthCheck() {
-        validateConfiguration();
-        JsonNode root = objectMapper.readTree(doGet(HEALTH_PATH));
-        return root.path("ok").asBoolean(false)
+        return Boolean.TRUE.equals(getHealthStatus().get("ok"));
+    }
+
+    @SneakyThrows
+    public Map<String, Object> getHealthStatus() {
+        WorkerSettings settings = resolveConfiguredSettings();
+        JsonNode root = objectMapper.readTree(doGet(settings, HEALTH_PATH));
+        boolean ok = root.path("ok").asBoolean(false)
                 || StrUtil.equalsAnyIgnoreCase(firstText(root, "status"), "ok", "healthy", "up");
+        Map<String, Object> result = toMap(root);
+        result.put("ok", ok);
+        result.put("baseUrl", settings.baseUrl());
+        return result;
     }
 
     private Map<String, Object> buildSubmitRequest(AiMediaTaskDO task) {
@@ -188,20 +205,47 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
                 StrUtil.format("Python Worker 任务状态无法识别：{}", workerStatus));
     }
 
-    private void validateConfiguration() {
-        if (!Boolean.TRUE.equals(enable)) {
-            throw new AiMediaProviderException("WORKER_DISABLED", "Python Worker 未启用");
+    private WorkerSettings resolveSettings(AiMediaTaskDO task) {
+        if (Boolean.TRUE.equals(enable)) {
+            return resolveConfiguredSettings();
         }
+        AiApiKeyDO apiKey = resolveApiKey(task);
+        if (StrUtil.isBlank(apiKey.getUrl())) {
+            throw new AiMediaProviderException("WORKER_CONFIG_MISSING",
+                    "PythonWorker API Key 的 URL 未配置，请填写 http://127.0.0.1:8099");
+        }
+        String token = StrUtil.blankToDefault(apiKey.getApiKey(), authToken);
+        if (StrUtil.isBlank(token)) {
+            throw new AiMediaProviderException("WORKER_CONFIG_MISSING",
+                    "PythonWorker API Key 未配置，请填写 worker-secret");
+        }
+        return new WorkerSettings(apiKey.getUrl(), token);
+    }
+
+    private WorkerSettings resolveConfiguredSettings() {
         if (StrUtil.isBlank(baseUrl)) {
             throw new AiMediaProviderException("WORKER_CONFIG_MISSING", "Python Worker base URL 未配置");
         }
         if (StrUtil.isBlank(authToken)) {
             throw new AiMediaProviderException("WORKER_CONFIG_MISSING", "Python Worker auth token 未配置");
         }
+        return new WorkerSettings(baseUrl, authToken);
     }
 
-    private String doGet(String path) {
-        try (HttpResponse response = withAuthorization(HttpRequest.get(buildUrl(path)))
+    private AiApiKeyDO resolveApiKey(AiMediaTaskDO task) {
+        AiModelDO model = modelService.validateModel(task.getModelId());
+        if (!Objects.equals(AiPlatformEnum.PYTHON_WORKER.getPlatform(), model.getPlatform())) {
+            throw new AiMediaProviderException("MODEL_PLATFORM_MISMATCH", "PythonWorker 视频模型平台不匹配");
+        }
+        AiApiKeyDO apiKey = apiKeyService.validateApiKey(model.getKeyId());
+        if (!CommonStatusEnum.ENABLE.getStatus().equals(apiKey.getStatus())) {
+            throw new AiMediaProviderException("DISABLED_API_KEY", "PythonWorker API Key 已禁用");
+        }
+        return apiKey;
+    }
+
+    private String doGet(WorkerSettings settings, String path) {
+        try (HttpResponse response = withAuthorization(HttpRequest.get(buildUrl(settings, path)), settings)
                 .timeout(resolveTimeoutMillis()).execute()) {
             return checkedBody(response);
         } catch (AiMediaProviderException e) {
@@ -211,8 +255,8 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
         }
     }
 
-    private String doPost(String path, String requestBody) {
-        try (HttpResponse response = withAuthorization(HttpRequest.post(buildUrl(path)))
+    private String doPost(WorkerSettings settings, String path, String requestBody) {
+        try (HttpResponse response = withAuthorization(HttpRequest.post(buildUrl(settings, path)), settings)
                 .header("Content-Type", "application/json")
                 .body(requestBody)
                 .timeout(resolveTimeoutMillis()).execute()) {
@@ -224,8 +268,8 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
         }
     }
 
-    private HttpRequest withAuthorization(HttpRequest request) {
-        return request.header("Authorization", "Bearer " + authToken);
+    private HttpRequest withAuthorization(HttpRequest request, WorkerSettings settings) {
+        return request.header("Authorization", "Bearer " + settings.authToken());
     }
 
     private String checkedBody(HttpResponse response) {
@@ -236,8 +280,8 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
         return response.body();
     }
 
-    private String buildUrl(String path) {
-        return StrUtil.removeSuffix(baseUrl, "/") + path;
+    private String buildUrl(WorkerSettings settings, String path) {
+        return StrUtil.removeSuffix(settings.baseUrl(), "/") + path;
     }
 
     private int resolveTimeoutMillis() {
@@ -268,6 +312,9 @@ public class PythonWorkerMediaProviderAdapter implements AiMediaProviderAdapter 
             }
         }
         return null;
+    }
+
+    private record WorkerSettings(String baseUrl, String authToken) {
     }
 
 }

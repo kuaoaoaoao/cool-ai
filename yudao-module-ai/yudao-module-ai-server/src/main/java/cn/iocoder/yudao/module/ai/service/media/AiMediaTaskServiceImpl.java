@@ -30,6 +30,7 @@ import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderExceptio
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderQueryResult;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderResult;
 import cn.iocoder.yudao.module.ai.service.media.provider.AiMediaProviderSubmitResult;
+import cn.iocoder.yudao.module.ai.service.media.provider.worker.PythonWorkerMediaProviderAdapter;
 import cn.iocoder.yudao.module.ai.service.media.provider.xiaomi.XiaomiMiMoTtsProviderAdapter;
 import cn.iocoder.yudao.module.ai.service.common.AiRemoteResourceService;
 import cn.iocoder.yudao.module.ai.service.model.AiModelService;
@@ -77,6 +78,8 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService, AiMediaExecut
     private FileApi fileApi;
     @Resource
     private AiRemoteResourceService remoteResourceService;
+    @Resource
+    private PythonWorkerMediaProviderAdapter pythonWorkerMediaProviderAdapter;
 
     @Value("${yudao.ai.media.tts.enable:true}")
     private Boolean ttsEnable;
@@ -104,6 +107,10 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService, AiMediaExecut
     private Integer videoPollLimit;
     @Value("${yudao.ai.media.worker.poll-limit:20}")
     private Integer workerPollLimit;
+    @Value("${yudao.ai.media.worker.enable:false}")
+    private Boolean workerEnable;
+    @Value("${yudao.ai.media.worker.base-url:}")
+    private String workerBaseUrl;
     @Value("${yudao.ai.media.asset.retention-days:30}")
     private Integer assetRetentionDays;
 
@@ -354,6 +361,29 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService, AiMediaExecut
         return syncImageToVideoTasks(AiPlatformEnum.PYTHON_WORKER.getPlatform(), workerPollLimit);
     }
 
+    @Override
+    public Map<String, Object> getProviderHealth() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        Map<String, Object> worker = new LinkedHashMap<>();
+        worker.put("platform", AiPlatformEnum.PYTHON_WORKER.getPlatform());
+        worker.put("enabled", Boolean.TRUE.equals(workerEnable));
+        worker.put("baseUrl", workerBaseUrl);
+        try {
+            worker.putAll(pythonWorkerMediaProviderAdapter.getHealthStatus());
+        } catch (AiMediaProviderException e) {
+            worker.put("ok", false);
+            worker.put("errorCode", e.getCode());
+            worker.put("errorMessage", StrUtil.blankToDefault(e.getMessage(), e.getCode()));
+        } catch (Exception e) {
+            worker.put("ok", false);
+            worker.put("errorCode", "WORKER_HEALTH_CHECK_FAILED");
+            worker.put("errorMessage", StrUtil.blankToDefault(e.getMessage(), "Python Worker 健康检查失败"));
+        }
+        result.put(AiPlatformEnum.PYTHON_WORKER.getPlatform(), worker);
+        result.put("xxlJobHandlers", List.of("aiSiliconFlowVideoSyncJob", "aiPythonWorkerMediaSyncJob"));
+        return result;
+    }
+
     private Integer syncImageToVideoTasks(String platform, Integer pollLimit) {
         List<AiMediaTaskDO> tasks = mediaTaskMapper
                 .selectListByTaskTypeAndPlatformAndStatusInAndProviderTaskIdNotEmpty(
@@ -510,7 +540,7 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService, AiMediaExecut
         try {
             AiMediaProviderAdapter adapter = providerAdapterResolver.resolve(task);
             if (adapter == null) {
-                throw exception(MEDIA_PROVIDER_NOT_EXISTS);
+                throw new AiMediaProviderException("MEDIA_PROVIDER_NOT_EXISTS", buildProviderNotFoundMessage(task));
             }
             AiMediaProviderResult providerResult = adapter.execute(task);
             String fileUrl = saveProviderResult(task.getId(), providerResult);
@@ -524,6 +554,11 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService, AiMediaExecut
         }
     }
 
+    private String buildProviderNotFoundMessage(AiMediaTaskDO task) {
+        return StrUtil.format("未找到可用的媒体 Provider：taskType={}, platform={}, model={}, workerEnable={}, workerBaseUrl={}",
+                task.getTaskType(), task.getPlatform(), task.getModel(), workerEnable, workerBaseUrl);
+    }
+
     @Async
     public void submitImageToVideoTask(AiMediaTaskDO task) {
         if (!guardedUpdateTaskProgress(task.getId(), AiMediaTaskStatusEnum.RUNNING.getStatus(), 2,
@@ -534,7 +569,7 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService, AiMediaExecut
         try {
             AiMediaProviderAdapter adapter = providerAdapterResolver.resolve(task);
             if (adapter == null) {
-                throw exception(MEDIA_PROVIDER_NOT_EXISTS);
+                throw new AiMediaProviderException("MEDIA_PROVIDER_NOT_EXISTS", buildProviderNotFoundMessage(task));
             }
             AiMediaProviderSubmitResult submitResult = adapter.submit(task);
             Map<String, Object> outputJson = mergeOutputJson(task.getOutputJson());
@@ -602,6 +637,10 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService, AiMediaExecut
         }
         task.setOutputJson(outputJson);
         if (isCancelRequested(task)) {
+            if (AiMediaTaskStatusEnum.CANCELLED.getStatus().equals(queryResult.getStatus())) {
+                updateTaskCancelled(task, "cancelled_by_provider", outputJson);
+                return;
+            }
             if (AiMediaTaskStatusEnum.SUCCEEDED.getStatus().equals(queryResult.getStatus())
                     || AiMediaTaskStatusEnum.FAILED.getStatus().equals(queryResult.getStatus())) {
                 updateTaskCancelled(task, "cancelled_after_provider_terminal", outputJson);
@@ -899,7 +938,8 @@ public class AiMediaTaskServiceImpl implements AiMediaTaskService, AiMediaExecut
         try {
             return fileApi.getFileByUrl(sourceImageUrl).getCheckedData();
         } catch (Exception e) {
-            throw exception(MEDIA_VIDEO_SOURCE_INVALID, "源图片文件不存在");
+            log.warn("[getSourceFile][sourceImageUrl({}) 查询源图片文件失败：{}]", sourceImageUrl, e.getMessage(), e);
+            throw exception(MEDIA_VIDEO_SOURCE_INVALID, "源图片文件不存在：" + e.getMessage());
         }
     }
 

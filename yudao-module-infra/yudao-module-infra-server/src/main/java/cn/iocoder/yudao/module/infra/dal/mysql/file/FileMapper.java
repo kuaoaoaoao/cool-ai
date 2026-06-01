@@ -27,4 +27,8 @@ public interface FileMapper extends BaseMapperX<FileDO> {
         return selectOne(FileDO::getUrl, url);
     }
 
+    default FileDO selectByPath(String path) {
+        return selectOne(FileDO::getPath, path);
+    }
+
 }

@@ -10,6 +10,12 @@ It intentionally uses only Python standard library so local Java integration can
 python3 worker.py --host 127.0.0.1 --port 8099 --token worker-secret
 ```
 
+Docker:
+
+```bash
+docker compose up -d
+```
+
 Java config example:
 
 ```yaml
@@ -26,9 +32,12 @@ yudao:
 ## Contract
 
 - `GET /health`
+- `GET /capabilities`
 - `POST /tasks`
 - `GET /tasks/{workerTaskId}`
 - `POST /tasks/{workerTaskId}/cancel`
 - `GET /files/{workerTaskId}.mp4`
 
-The skeleton simulates progress and returns a tiny placeholder MP4 byte stream. If the prompt contains `fail`, it reports a failed task.
+The skeleton simulates progress and returns a tiny playable mock MP4 byte stream. If the prompt contains `fail`, it reports a failed task.
+
+This worker is still a contract/mock implementation. For real local video generation, replace the task execution section with a ComfyUI, Diffusers, or other model backend and keep the HTTP contract unchanged.

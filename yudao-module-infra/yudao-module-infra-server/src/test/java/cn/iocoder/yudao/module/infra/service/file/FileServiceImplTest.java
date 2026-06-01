@@ -78,6 +78,40 @@ public class FileServiceImplTest extends BaseDbUnitTest {
         AssertUtils.assertPojoEquals(dbFile, pageResult.getList().get(0));
     }
 
+    @Test
+    public void testGetFileByUrl_fallbackByProjectFilePath() {
+        // mock 数据：数据库中存储的域名和请求域名不同
+        FileDO dbFile = randomPojo(FileDO.class, o -> {
+            o.setPath("ai-media/source/demo.png");
+            o.setUrl("http://127.0.0.1:48080/admin-api/infra/file/1/get/ai-media/source/demo.png");
+        });
+        fileMapper.insert(dbFile);
+
+        // 调用
+        FileDO file = fileService.getFileByUrl(
+                "http://localhost:48080/admin-api/infra/file/1/get/ai-media/source/demo.png");
+
+        // 断言
+        assertEquals(dbFile.getId(), file.getId());
+    }
+
+    @Test
+    public void testGetFileByUrl_fallbackByDecodedProjectFilePath() {
+        // mock 数据：数据库 path 是中文原文，请求 URL 中 path 已编码
+        FileDO dbFile = randomPojo(FileDO.class, o -> {
+            o.setPath("ai-media/source/20260531/厕所漏水图.png");
+            o.setUrl("http://127.0.0.1:48080/admin-api/infra/file/29/get/ai-media/source/20260531/厕所漏水图.png");
+        });
+        fileMapper.insert(dbFile);
+
+        // 调用
+        FileDO file = fileService.getFileByUrl("http://127.0.0.1:48080/admin-api/infra/file/29/get/"
+                + "ai-media/source/20260531/%E5%8E%95%E6%89%80%E6%BC%8F%E6%B0%B4%E5%9B%BE.png");
+
+        // 断言
+        assertEquals(dbFile.getId(), file.getId());
+    }
+
     /**
      * content、name、directory、type 都非空
      */

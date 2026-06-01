@@ -81,6 +81,7 @@ public class SiliconFlowVideoProviderAdapter implements AiMediaProviderAdapter {
         String requestBody = objectMapper.writeValueAsString(request);
         String body = doPost(buildUrl(apiKey.getUrl(), SUBMIT_PATH, SUBMIT_SUFFIX), apiKey.getApiKey(), requestBody);
         JsonNode root = objectMapper.readTree(body);
+        ensureNoProviderError(root);
         String requestId = firstText(root, "requestId", "request_id", "id", "task_id");
         if (StrUtil.isBlank(requestId)) {
             log.warn("[submit][SiliconFlow 视频提交响应无法识别，taskId({}) body({})]", task.getId(), StrUtil.maxLength(body, 1024));
@@ -103,6 +104,10 @@ public class SiliconFlowVideoProviderAdapter implements AiMediaProviderAdapter {
         JsonNode root = objectMapper.readTree(body);
         String providerStatus = firstText(root, "status", "taskStatus", "task_status");
         Map<String, Object> rawOutput = objectMapper.convertValue(root, new TypeReference<Map<String, Object>>() {});
+        if (hasProviderError(root)) {
+            return new AiMediaProviderQueryResult(AiMediaTaskStatusEnum.FAILED.getStatus(), 100,
+                    "provider_failed", null, null, providerErrorCode(root), providerErrorMessage(root), rawOutput);
+        }
         return mapStatus(providerStatus, root, rawOutput);
     }
 
@@ -202,8 +207,7 @@ public class SiliconFlowVideoProviderAdapter implements AiMediaProviderAdapter {
                 .timeout(requestTimeoutMillis == null || requestTimeoutMillis <= 0 ? 120_000 : requestTimeoutMillis)
                 .execute()) {
             if (response.getStatus() < HttpStatus.HTTP_OK || response.getStatus() >= HttpStatus.HTTP_MULT_CHOICE) {
-                throw new AiMediaProviderException("HTTP_" + response.getStatus(),
-                        StrUtil.maxLength(response.body(), 480));
+                throw buildHttpProviderException(response.getStatus(), response.body());
             }
             return response.body();
         } catch (AiMediaProviderException e) {
@@ -241,6 +245,50 @@ public class SiliconFlowVideoProviderAdapter implements AiMediaProviderAdapter {
         }
         throw new AiMediaProviderException("UNKNOWN_STATUS",
                 StrUtil.format("SiliconFlow 视频任务状态无法识别：{}", providerStatus));
+    }
+
+    private void ensureNoProviderError(JsonNode root) {
+        if (hasProviderError(root)) {
+            throw new AiMediaProviderException(providerErrorCode(root), providerErrorMessage(root));
+        }
+    }
+
+    private boolean hasProviderError(JsonNode root) {
+        String code = firstText(root, "code", "errorCode", "error_code");
+        if (StrUtil.isNotBlank(code) && !Objects.equals(code, "0")) {
+            return true;
+        }
+        JsonNode success = root == null ? null : root.get("success");
+        return success != null && success.isBoolean() && !success.asBoolean();
+    }
+
+    private AiMediaProviderException buildHttpProviderException(int status, String body) {
+        try {
+            JsonNode root = objectMapper.readTree(StrUtil.nullToEmpty(body));
+            if (hasProviderError(root)) {
+                return new AiMediaProviderException(providerErrorCode(root), providerErrorMessage(root));
+            }
+        } catch (Exception ignored) {
+            // Fall through to the raw HTTP error body.
+        }
+        return new AiMediaProviderException("HTTP_" + status, StrUtil.maxLength(body, 480));
+    }
+
+    private String providerErrorCode(JsonNode root) {
+        String code = firstText(root, "code", "errorCode", "error_code");
+        if (StrUtil.isBlank(code)) {
+            code = firstText(root.path("data"), "code", "errorCode", "error_code");
+        }
+        return StrUtil.isBlank(code) ? "PROVIDER_FAILED" : "SILICONFLOW_" + code;
+    }
+
+    private String providerErrorMessage(JsonNode root) {
+        String message = firstText(root, "message", "error", "reason", "errorMessage", "error_message");
+        if (StrUtil.isBlank(message)) {
+            message = firstText(root.path("data"), "message", "error", "reason", "errorMessage", "error_message");
+        }
+        return StrUtil.format("SiliconFlow 请求失败：{}",
+                StrUtil.blankToDefault(message, StrUtil.maxLength(Objects.toString(root, ""), 480)));
     }
 
     private String buildUrl(String configuredUrl, String path, String suffix) {

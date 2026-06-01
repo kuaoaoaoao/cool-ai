@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import time
 import uuid
@@ -14,6 +15,10 @@ from urllib import request
 TASKS: dict[str, dict] = {}
 AUTH_TOKEN = "worker-secret"
 PUBLIC_BASE_URL = ""
+WORKER_MODE = "mock"
+MOCK_VIDEO_BYTES = base64.b64decode(
+    "AAAAHGZ0eXBpc29tAAACAGlzb21pc28ybXA0MQAAAAhmcmVlAAAAQm1kYXQKCwAAAAQ+f7z7+QBAMisQAIQAAACAACAAKNIUSOes0atpgVFpNbUsOTnEHe3vMpg1AfiF0dGF6y6EAAADOG1vb3YAAABsbXZoZAAAAAAAAAAAAAAAAAAAA+gAAAAqAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIKdHJhawAAAFx0a2hkAAAAAwAAAAAAAAAAAAAAAQAAAAAAAAAqAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAGgAAAA8AAAAAAAJGVkdHMAAAAcZWxzdAAAAAAAAAABAAAAKgAAAAAAAQAAAAABgm1kaWEAAAAgbWRoZAAAAAAAAAAAAAAAAAAASvAAAAMgFccAAAAAAC1oZGxyAAAAAAAAAAB2aWRlAAAAAAAAAAAAAAAAVmlkZW9IYW5kbGVyAAAAAS1taW5mAAAAFHZtaGQAAAABAAAAAAAAAAAAAAAkZGluZgAAABxkcmVmAAAAAAAAAAEAAAAMdXJsIAAAAAEAAADtc3RibAAAAIlzdHNkAAAAAAAAAAEAAAB5YXYwMQAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAGgAPAASAAAAEgAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABj//wAAABlhdjFDgQAMAAoLAAAABD5/vPv5AEAAAAAKZmllbAEAAAAAGHN0dHMAAAAAAAAAAQAAAAEAAAMgAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAABAAAAAQAAABRzdHN6AAAAAAAAADoAAAABAAAAFHN0Y28AAAAAAAAAAQAAACwAAAC6dWR0YQAAALJtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyYXBwbAAAAAAAAAAAAAAAAIVpbHN0AAAAWKluYW0AAABQZGF0YQAAAAEAAAAAQmlnIEJ1Y2sgQnVubnkgLSBodHRwOi8vd3d3LmFyY2hpdmUub3JnL2RldGFpbHMvQmlnQnVja0J1bm55XzMxMAAAACWpdG9vAAAAHWRhdGEAAAABAAAAAExhdmY1OC4yOS4xMDA="
+)
 
 
 def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
@@ -34,6 +39,20 @@ def read_json(handler: BaseHTTPRequestHandler) -> dict:
 
 def authorized(handler: BaseHTTPRequestHandler) -> bool:
     return handler.headers.get("Authorization") == f"Bearer {AUTH_TOKEN}"
+
+
+def capabilities_payload() -> dict:
+    return {
+        "name": "yudao-ai-worker",
+        "mode": WORKER_MODE,
+        "taskTypes": ["IMAGE_TO_VIDEO"],
+        "models": ["mock-i2v"],
+        "supportsCallback": True,
+        "supportsCancel": True,
+        "supportsSourceFiles": True,
+        "playableMockVideo": True,
+        "realGeneration": WORKER_MODE != "mock",
+    }
 
 
 def task_snapshot(worker_task_id: str, handler: BaseHTTPRequestHandler) -> dict:
@@ -87,9 +106,37 @@ def send_callback(task: dict, payload: dict) -> None:
 
 class WorkerHandler(BaseHTTPRequestHandler):
 
+    def send_mock_video(self, write_body: bool) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(len(MOCK_VIDEO_BYTES)))
+        self.end_headers()
+        if write_body:
+            self.wfile.write(MOCK_VIDEO_BYTES)
+
+    def do_HEAD(self) -> None:
+        if self.path.startswith("/files/"):
+            self.send_mock_video(False)
+            return
+        if self.path in ("/health", "/capabilities"):
+            payload = json.dumps(capabilities_payload(), ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()
+
     def do_GET(self) -> None:
         if self.path == "/health":
-            json_response(self, 200, {"ok": True, "status": "healthy"})
+            payload = {"ok": True, "status": "healthy", "taskCount": len(TASKS)}
+            payload.update(capabilities_payload())
+            json_response(self, 200, payload)
+            return
+        if self.path == "/capabilities":
+            json_response(self, 200, capabilities_payload())
             return
         if self.path.startswith("/tasks/"):
             if not authorized(self):
@@ -102,12 +149,7 @@ class WorkerHandler(BaseHTTPRequestHandler):
             json_response(self, 200, task_snapshot(worker_task_id, self))
             return
         if self.path.startswith("/files/"):
-            data = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"
-            self.send_response(200)
-            self.send_header("Content-Type", "video/mp4")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            self.send_mock_video(True)
             return
         json_response(self, 404, {"error": "not found"})
 
@@ -154,10 +196,12 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8099)
     parser.add_argument("--token", default="worker-secret")
     parser.add_argument("--public-base-url", default="")
+    parser.add_argument("--mode", default="mock", choices=["mock", "real"])
     args = parser.parse_args()
-    global AUTH_TOKEN, PUBLIC_BASE_URL
+    global AUTH_TOKEN, PUBLIC_BASE_URL, WORKER_MODE
     AUTH_TOKEN = args.token
     PUBLIC_BASE_URL = args.public_base_url.rstrip("/")
+    WORKER_MODE = args.mode
     server = ThreadingHTTPServer((args.host, args.port), WorkerHandler)
     print(f"Python Worker listening on http://{args.host}:{args.port}")
     server.serve_forever()

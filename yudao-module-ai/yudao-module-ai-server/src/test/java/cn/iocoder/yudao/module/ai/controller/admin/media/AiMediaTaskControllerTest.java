@@ -174,6 +174,17 @@ class AiMediaTaskControllerTest {
     }
 
     @Test
+    void getProviderHealth_success() throws Exception {
+        when(mediaTaskService.getProviderHealth()).thenReturn(Map.of(
+                "PythonWorker", Map.of("ok", true, "status", "healthy")));
+
+        mockMvc.perform(get("/ai/media/task/provider-health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.PythonWorker.ok").value(true))
+                .andExpect(jsonPath("$.data.PythonWorker.status").value("healthy"));
+    }
+
+    @Test
     void getMyAssetPage_success() throws Exception {
         when(mediaTaskService.getUserAssetPage(any(), eq(10L))).thenReturn(new PageResult<>(List.of(
                 new AiMediaAssetRespVO()

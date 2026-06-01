@@ -14,6 +14,7 @@ import cn.iocoder.yudao.module.ai.service.media.AiMediaTaskService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.annotation.security.PermitAll;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -50,6 +51,7 @@ public class AiMediaTaskController {
 
     @PostMapping("/callback/python-worker")
     @Operation(summary = "接收 Python Worker 媒体任务回调")
+    @PermitAll
     public CommonResult<Boolean> handlePythonWorkerCallback(
             @RequestHeader(value = "X-Worker-Token", required = false) String token,
             @RequestBody Map<String, Object> payload) {
@@ -122,6 +124,13 @@ public class AiMediaTaskController {
     public CommonResult<Boolean> cancelMyTask(@RequestParam("id") Long id) {
         mediaTaskService.cancelUserTask(id, getLoginUserId());
         return success(true);
+    }
+
+    @GetMapping("/provider-health")
+    @Operation(summary = "检查媒体 Provider 健康状态")
+    @PreAuthorize("@ss.hasPermission('ai:media:video:create')")
+    public CommonResult<Map<String, Object>> getProviderHealth() {
+        return success(mediaTaskService.getProviderHealth());
     }
 
     private PageResult<AiMediaTaskRespVO> buildPageRespVO(PageResult<AiMediaTaskDO> pageResult) {

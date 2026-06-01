@@ -180,6 +180,47 @@ class SiliconFlowVideoProviderAdapterTest extends BaseMockitoUnitTest {
     }
 
     @Test
+    void query_failedCode_mapsProviderErrorCode() throws IOException {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/video/status", exchange -> {
+            byte[] response = """
+                    {"code":60011,"message":"Request failed: Unknown error.","data":null}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        AiMediaProviderQueryResult result = adapter.query(buildTask("http://127.0.0.1:" + server.getAddress().getPort())
+                .setProviderTaskId("sf-request-1"));
+
+        assertEquals(AiMediaTaskStatusEnum.FAILED.getStatus(), result.getStatus());
+        assertEquals("SILICONFLOW_60011", result.getErrorCode());
+        assertEquals("SiliconFlow 请求失败：Request failed: Unknown error.", result.getErrorMessage());
+    }
+
+    @Test
+    void submit_httpProviderError_parsesBody() throws IOException {
+        server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/video/submit", exchange -> {
+            byte[] response = """
+                    {"code":60011,"message":"Request failed: Unknown error.","data":null}
+                    """.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(400, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        AiMediaProviderException exception = assertThrows(AiMediaProviderException.class,
+                () -> adapter.submit(buildTask("http://127.0.0.1:" + server.getAddress().getPort())));
+
+        assertEquals("SILICONFLOW_60011", exception.getCode());
+        assertEquals("SiliconFlow 请求失败：Request failed: Unknown error.", exception.getMessage());
+    }
+
+    @Test
     void submit_malformedResponse() throws IOException {
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/v1/video/submit", exchange -> {
