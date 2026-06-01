@@ -18,13 +18,14 @@
           <el-progress
             :percentage="file.progress || 0"
             :stroke-width="10"
-            :status="isProcessComplete(file) ? 'success' : ''"
+            :status="file.error ? 'exception' : isProcessComplete(file) ? 'success' : ''"
           />
         </div>
 
         <!-- 分段数量 -->
         <div class="ml-10px text-[13px] text-[#606266]">
-          分段数量：{{ file.count ? file.count : '-' }}
+          <span v-if="file.error" class="text-[var(--el-color-danger)]">{{ file.error }}</span>
+          <span v-else>分段数量：{{ file.count ? file.count : '-' }}</span>
         </div>
       </div>
     </div>
@@ -44,6 +45,7 @@
 
 <script setup lang="ts">
 import { KnowledgeSegmentApi } from '@/api/ai/knowledge/segment'
+import { useMessage } from '@/hooks/web/useMessage'
 
 const props = defineProps({
   modelValue: {
@@ -55,6 +57,8 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 const parent = inject('parent') as any
 const pollingTimer = ref<number | null>(null) // 轮询定时器 ID，用于跟踪和清除轮询进程
+const message = useMessage()
+const pollingErrorCount = ref(0)
 
 /** 判断文件处理是否完成 */
 const isProcessComplete = (file) => {
@@ -79,9 +83,11 @@ const getProcessList = async () => {
     // 1. 调用 API 获取处理进度
     const documentIds = props.modelValue.list.filter((item) => item.id).map((item) => item.id)
     if (documentIds.length === 0) {
+      markProcessError('未获取到文档编号')
       return
     }
     const result = await KnowledgeSegmentApi.getKnowledgeSegmentProcessList(documentIds)
+    pollingErrorCount.value = 0
 
     // 2.1更新进度
     const updatedList = props.modelValue.list.map((file) => {
@@ -98,7 +104,10 @@ const getProcessList = async () => {
           count: processInfo.count || 0
         }
       }
-      return file
+      return {
+        ...file,
+        progress: file.progress || 0
+      }
     })
 
     // 2.2 更新数据
@@ -114,8 +123,24 @@ const getProcessList = async () => {
   } catch (error) {
     // 出错后也继续轮询
     console.error('获取处理进度失败:', error)
+    pollingErrorCount.value++
+    if (pollingErrorCount.value >= 3) {
+      markProcessError('处理进度获取失败，请检查 Embedding 模型/API Key 配置')
+      message.error('处理进度获取失败，请检查 Embedding 模型/API Key 配置')
+      return
+    }
     pollingTimer.value = window.setTimeout(getProcessList, 5000)
   }
+}
+
+const markProcessError = (error: string) => {
+  emit('update:modelValue', {
+    ...props.modelValue,
+    list: props.modelValue.list.map((file) => ({
+      ...file,
+      error
+    }))
+  })
 }
 
 /** 组件挂载时开始轮询 */

@@ -14,13 +14,26 @@
         <UploadImg v-model="formData.avatar" height="60px" width="60px" />
       </el-form-item>
       <el-form-item label="绑定模型" prop="modelId" v-if="!isUser">
-        <el-select v-model="formData.modelId" placeholder="请选择模型" clearable>
+        <el-select v-model="formData.modelId" placeholder="请选择模型" clearable class="!w-1/1">
           <el-option
             v-for="model in models"
             :key="model.id"
             :label="model.name"
             :value="model.id"
-          />
+          >
+            <div class="flex items-center justify-between gap-12px">
+              <span>{{ model.name }}</span>
+              <span class="flex gap-4px">
+                <el-tag v-if="model.inputModalities?.includes('image')" size="small" type="success">
+                  视觉
+                </el-tag>
+                <el-tag v-if="model.capabilities?.includes('tool')" size="small" type="warning">
+                  工具
+                </el-tag>
+                <el-tag size="small" type="info">文本</el-tag>
+              </span>
+            </div>
+          </el-option>
         </el-select>
       </el-form-item>
       <el-form-item label="角色类别" prop="category" v-if="!isUser">
@@ -51,7 +64,7 @@
         <el-select v-model="formData.mcpClientNames" placeholder="请选择 MCP" clearable multiple>
           <el-option
             v-for="dict in getStrDictOptions(DICT_TYPE.AI_MCP_CLIENT_NAME)"
-            :key="dict.value"
+            :key="String(dict.value)"
             :label="dict.label"
             :value="dict.value"
           />
@@ -61,7 +74,7 @@
         <el-radio-group v-model="formData.publicStatus">
           <el-radio
             v-for="dict in getBoolDictOptions(DICT_TYPE.INFRA_BOOLEAN_STRING)"
-            :key="dict.value"
+            :key="String(dict.value)"
             :value="dict.value"
           >
             {{ dict.label }}
@@ -75,7 +88,7 @@
         <el-radio-group v-model="formData.status">
           <el-radio
             v-for="dict in getIntDictOptions(DICT_TYPE.COMMON_STATUS)"
-            :key="dict.value"
+            :key="String(dict.value)"
             :value="dict.value"
           >
             {{ dict.label }}
@@ -109,7 +122,10 @@ const dialogVisible = ref(false) // 弹窗的是否展示
 const dialogTitle = ref('') // 弹窗的标题
 const formLoading = ref(false) // 表单的加载中：1）修改时的数据加载；2）提交的按钮禁用
 const formType = ref('') // 表单的类型：create - 新增；update - 修改
-const formData = ref({
+
+type ChatRoleFormData = Partial<ChatRoleVO>
+
+const formData = ref<ChatRoleFormData>({
   id: undefined,
   modelId: undefined,
   name: undefined,
@@ -177,7 +193,13 @@ const submitForm = async () => {
   // 提交请求
   formLoading.value = true
   try {
-    const data = formData.value as unknown as ChatRoleVO
+    const data = {
+      ...formData.value,
+      name: formData.value.name?.trim(),
+      category: formData.value.category?.trim(),
+      description: formData.value.description?.trim(),
+      systemMessage: formData.value.systemMessage?.trim()
+    } as unknown as ChatRoleVO
     // tip: my-create、my-update 是 chat 角色仓库调用
     // tip: create、else 是后台管理调用
     if (formType.value === 'my-create') {

@@ -217,20 +217,19 @@ const settingValues = async (detail: ImageVO) => {
   // image size
   const imageSize = MidjourneySizeList.find(
     (item) => item.key === `${detail.width}:${detail.height}`
-  ) as ImageSizeVO
+  ) || MidjourneySizeList[0]
   selectSize.value = imageSize.key
   // 选中模型
-  const model = MidjourneyModels.find((item) => item.key === detail.options?.model) as ImageModelVO
+  const model = MidjourneyModels.find((item) => item.key === detail.options?.model) || MidjourneyModels[0]
   await handleModelClick(model)
   // 版本
-  selectVersion.value = versionList.value.find(
+  selectVersion.value = (versionList.value.find(
     (item) => item.value === detail.options?.version
-  ).value
+  ) || versionList.value[0]).value
   // image
-  referImageUrl.value = detail.options.referImageUrl
+  referImageUrl.value = detail.options?.referImageUrl
 }
 
 /** 暴露组件方法 */
 defineExpose({ settingValues })
 </script>
-

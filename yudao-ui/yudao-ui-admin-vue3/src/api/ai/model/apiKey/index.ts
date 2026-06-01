@@ -1,4 +1,5 @@
 import request from '@/config/axios'
+import type { ModelConnectionTestRespVO } from '@/api/ai/model/model'
 
 // AI API 密钥 VO
 export interface ApiKeyVO {
@@ -40,5 +41,10 @@ export const ApiKeyApi = {
   // 删除 API 密钥
   deleteApiKey: async (id: number) => {
     return await request.delete({ url: `/ai/api-key/delete?id=` + id })
+  },
+
+  // 测试 API 密钥连接
+  testApiKeyConnection: async (id: number): Promise<ModelConnectionTestRespVO> => {
+    return await request.post({ url: `/ai/api-key/test-connection?id=` + id })
   }
 }

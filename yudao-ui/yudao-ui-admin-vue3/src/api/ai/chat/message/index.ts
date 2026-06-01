@@ -53,6 +53,7 @@ export const ChatMessageApi = {
     ctrl,
     enableContext: boolean,
     enableWebSearch: boolean,
+    enableThinking: boolean,
     onMessage,
     onError,
     onClose,
@@ -71,6 +72,7 @@ export const ChatMessageApi = {
         content,
         useContext: enableContext,
         useSearch: enableWebSearch,
+        enableThinking,
         attachmentUrls: attachmentUrls || []
       }),
       onmessage: onMessage,

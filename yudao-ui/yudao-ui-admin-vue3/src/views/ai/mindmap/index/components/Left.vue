@@ -19,7 +19,7 @@
           class="!w-full mt-[15px]"
           type="primary"
           :loading="isGenerating"
-          @click="emits('submit', formData)"
+          @click="handleSubmit"
         >
           智能生成思维导图
         </el-button>
@@ -62,6 +62,16 @@ const formData = reactive({
 })
 
 const generatedContent = ref(MindMapContentExample) // 已有的内容
+
+const message = useMessage()
+
+const handleSubmit = () => {
+  if (!formData.prompt?.trim()) {
+    message.warning('请输入思维导图内容提示')
+    return
+  }
+  emits('submit', { ...formData, prompt: formData.prompt.trim() })
+}
 
 defineExpose({
   setGeneratedContent(newContent: string) {

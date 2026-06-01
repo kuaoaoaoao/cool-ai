@@ -3,7 +3,9 @@ import request from '@/config/axios'
 // AI 绘图 VO
 export interface ImageVO {
   id: number // 编号
+  userId: number // 用户编号
   platform: string // 平台
+  modelId?: number // 模型编号
   model: string // 模型
   prompt: string // 提示词
   width: number // 图片宽度
@@ -13,7 +15,7 @@ export interface ImageVO {
   picUrl: string // 任务地址
   errorMessage: string // 错误信息
   options: any // 配置 Map<string, string>
-  taskId: number // 任务编号
+  taskId: string // 任务编号
   buttons: ImageMidjourneyButtonsVO[] // mj 操作按钮
   createTime: Date // 创建时间
   finishTime: Date // 完成时间
@@ -22,19 +24,20 @@ export interface ImageVO {
 export interface ImageDrawReqVO {
   prompt: string // 提示词
   modelId: number // 模型
-  style: string // 图像生成的风格
-  width: string // 图片宽度
-  height: string // 图片高度
+  style?: string // 图像生成的风格
+  width: number // 图片宽度
+  height: number // 图片高度
   options: object // 绘制参数，Map<String, String>
 }
 
 export interface ImageMidjourneyImagineReqVO {
   prompt: string // 提示词
   modelId: number // 模型
-  base64Array: string[] // size不能为空
+  base64Array?: string[] // size不能为空
   width: string // 图片宽度
   height: string // 图片高度
   version: string // 版本
+  referImageUrl?: string // 参考图
 }
 
 export interface ImageMidjourneyActionVO {

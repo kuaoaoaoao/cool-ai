@@ -48,7 +48,7 @@
               <el-dropdown-item
                 v-for="(file, index) in modelData.list"
                 :key="index"
-                @click="selectFile(index)"
+                @click="selectFile(Number(index))"
               >
                 {{ file.name }}
                 <span v-if="file.segments" class="ml-5px text-gray-500 text-12px">
@@ -72,7 +72,7 @@
         >
           <div v-for="(segment, index) in currentFile.segments" :key="index" class="mb-10px">
             <div class="text-gray-500 text-12px mb-5px">
-              分片-{{ index + 1 }} · {{ segment.contentLength || 0 }} 字符数 ·
+              分片-{{ Number(index) + 1 }} · {{ segment.contentLength || 0 }} 字符数 ·
               {{ segment.tokens || 0 }} Token
             </div>
             <div class="bg-white p-10px rounded-md">{{ segment.content }}</div>
@@ -143,8 +143,13 @@ const splitContent = async (file: any) => {
       file.url,
       modelData.value.segmentMaxTokens
     )
-  } catch (error) {
+    if (!file.segments || file.segments.length === 0) {
+      message.warning('未解析出可用分段，请检查文件内容')
+    }
+  } catch (error: any) {
     console.error('获取分段内容失败:', file, error)
+    file.segments = []
+    message.error(error?.msg || error?.message || '分段预览失败，请检查文件解析或知识库配置')
   } finally {
     splitLoading.value = false
   }
@@ -213,6 +218,7 @@ const handleSave = async () => {
     }
   } catch (error: any) {
     console.error('保存失败:', modelData.value, error)
+    message.error(error?.msg || error?.message || '保存并处理失败，请检查 Embedding 模型/API Key 配置')
   } finally {
     // 关闭按钮加载状态
     submitLoading.value = false

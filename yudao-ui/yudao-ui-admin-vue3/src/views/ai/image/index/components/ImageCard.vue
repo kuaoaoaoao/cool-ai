@@ -21,6 +21,7 @@
           class="!p-10px !m-0"
           text
           :icon="Download"
+          :disabled="!detail?.picUrl"
           @click="handleButtonClick('download', detail)"
         />
         <el-button
@@ -45,11 +46,13 @@
     </div>
     <div class="!overflow-hidden !mt-20px !h-280px !flex-1" ref="cardImageRef">
       <el-image
+        v-if="detail?.picUrl"
         class="!w-full !rounded-10px"
         :src="detail?.picUrl"
         :preview-src-list="[detail.picUrl]"
         preview-teleported
       />
+      <el-empty v-else-if="detail?.status === AiImageStatusEnum.IN_PROGRESS" description="生成中" />
       <div v-if="detail?.status === AiImageStatusEnum.FAIL">
         {{ detail?.errorMessage }}
       </div>
@@ -59,7 +62,7 @@
       <el-button
         size="small"
         v-for="button in detail?.buttons"
-        :key="button"
+        :key="button.customId"
         class="min-w-40px ml-0 mr-10px mt-5px"
         @click="handleMidjourneyBtnClick(button)"
       >
@@ -80,7 +83,7 @@ const message = useMessage() // 消息
 const props = defineProps({
   detail: {
     type: Object as PropType<ImageVO>,
-    require: true
+    required: true
   }
 })
 
@@ -88,7 +91,10 @@ const cardImageRef = ref<any>() // 卡片 image ref
 const cardImageLoadingInstance = ref<any>() // 卡片 image ref
 
 /** 处理点击事件  */
-const handleButtonClick = async (type, detail: ImageVO) => {
+const handleButtonClick = async (type: string, detail?: ImageVO) => {
+  if (!detail) {
+    return
+  }
   emits('onBtnClick', type, detail)
 }
 
@@ -103,8 +109,10 @@ const emits = defineEmits(['onBtnClick', 'onMjBtnClick']) // emits
 
 /** 监听详情 */
 const { detail } = toRefs(props)
-watch(detail, async (newVal, oldVal) => {
-  await handleLoading(newVal.status as string)
+watch(detail, async (newVal) => {
+  if (newVal) {
+    await handleLoading(newVal.status)
+  }
 })
 
 /** 处理加载状态 */
@@ -126,6 +134,8 @@ const handleLoading = async (status: number) => {
 
 /** 初始化 */
 onMounted(async () => {
-  await handleLoading(props.detail.status as string)
+  if (props.detail) {
+    await handleLoading(props.detail.status)
+  }
 })
 </script>

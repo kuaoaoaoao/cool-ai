@@ -67,6 +67,27 @@
       </el-table-column>
       <el-table-column label="模型名字" align="center" prop="name" min-width="180" />
       <el-table-column label="模型标识" align="center" prop="model" min-width="180" />
+      <el-table-column label="能力" align="center" min-width="180">
+        <template #default="scope">
+          <el-space wrap>
+            <el-tag
+              v-for="capability in scope.row.capabilities || []"
+              :key="capability"
+              size="small"
+              effect="plain"
+            >
+              {{ capability }}
+            </el-tag>
+          </el-space>
+        </template>
+      </el-table-column>
+      <el-table-column label="模态" align="center" min-width="160">
+        <template #default="scope">
+          <span>{{ (scope.row.inputModalities || []).join('+') }}</span>
+          <span v-if="scope.row.outputModalities?.length"> → </span>
+          <span>{{ (scope.row.outputModalities || []).join('+') }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="API 秘钥" align="center" prop="keyId" min-width="140">
         <template #default="scope">
           <span>{{ apiKeyList.find((item) => item.id === scope.row.keyId)?.name }}</span>
@@ -81,8 +102,17 @@
       <el-table-column label="温度参数" align="center" prop="temperature" min-width="80" />
       <el-table-column label="回复数 Token 数" align="center" prop="maxTokens" min-width="140" />
       <el-table-column label="上下文数量" align="center" prop="maxContexts" min-width="100" />
-      <el-table-column label="操作" align="center" width="180" fixed="right">
+      <el-table-column label="操作" align="center" width="240" fixed="right">
         <template #default="scope">
+          <el-button
+            link
+            type="success"
+            :loading="testingId === scope.row.id"
+            @click="handleTestConnection(scope.row.id)"
+            v-hasPermi="['ai:model:query']"
+          >
+            测试连接
+          </el-button>
           <el-button
             link
             type="primary"
@@ -139,6 +169,7 @@ const queryParams = reactive({
 })
 const queryFormRef = ref() // 搜索的表单
 const apiKeyList = ref([] as ApiKeyVO[]) // API 密钥列表
+const testingId = ref<number>() // 当前测试中的模型编号
 
 /** 查询列表 */
 const getList = async () => {
@@ -181,6 +212,32 @@ const handleDelete = async (id: number) => {
     // 刷新列表
     await getList()
   } catch {}
+}
+
+/** 测试连接 */
+const handleTestConnection = async (id: number) => {
+  testingId.value = id
+  try {
+    const result = await ModelApi.testModelConnection(id)
+    showConnectionTestResult(result)
+  } finally {
+    testingId.value = undefined
+  }
+}
+
+const showConnectionTestResult = (result: any) => {
+  const lines = [
+    `平台：${result.platform || '-'}`,
+    `模型：${result.model || '-'}`,
+    `耗时：${result.durationMillis ?? '-'} ms`
+  ]
+  if (!result.success) {
+    lines.push(`错误码：${result.errorCode || '-'}`)
+    lines.push(`错误详情：${result.detail || result.message || '-'}`)
+    message.alertError(lines.join('\n'))
+    return
+  }
+  message.alertSuccess([result.message || '连接测试成功', ...lines].join('\n'))
 }
 
 /** 初始化 **/

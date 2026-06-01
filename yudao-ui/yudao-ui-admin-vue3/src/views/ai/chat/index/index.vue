@@ -85,13 +85,28 @@
             placeholder="问我任何问题...（Shift+Enter 换行，按下 Enter 发送）"
           >
           </textarea>
-          <div class="flex justify-between pb-0 pt-5px">
-            <div class="flex items-center">
-              <MessageFileUpload v-model="uploadFiles" :limit="5" :max-size="10" class="mr-10px" />
+          <div class="flex justify-between gap-10px pb-0 pt-5px">
+            <div class="flex min-w-0 flex-wrap items-center gap-y-5px">
+              <MessageFileUpload
+                v-model="uploadFiles"
+                :limit="5"
+                :max-size="10"
+                :max-image-size="10"
+                :max-audio-size="35"
+                :max-video-size="35"
+                :accept-types="chatUploadAcceptTypes"
+                :allow-image="chatSupportsImageInput"
+                :allow-audio="chatSupportsAudioInput"
+                :allow-video="chatSupportsVideoInput"
+                :disabled="!chatSupportsAttachmentInput"
+                class="mr-10px"
+              />
               <el-switch v-model="enableContext" />
               <span class="ml-5px mr-15px text-14px text-#8f8f8f">上下文</span>
               <el-switch v-model="enableWebSearch" />
-              <span class="ml-5px text-14px text-#8f8f8f">联网搜索</span>
+              <span class="ml-5px mr-15px text-14px text-#8f8f8f">联网搜索</span>
+              <el-switch v-model="enableThinking" />
+              <span class="ml-5px text-14px text-#8f8f8f">深度思考</span>
             </div>
             <el-button
               type="primary"
@@ -162,10 +177,43 @@ const inputTimeout = ref<any>() // 处理输入中回车的定时器
 const prompt = ref<string>() // prompt
 const enableContext = ref<boolean>(true) // 是否开启上下文
 const enableWebSearch = ref<boolean>(false) // 是否开启联网搜索
+const enableThinking = ref<boolean>(true) // 是否开启深度思考
 const uploadFiles = ref<string[]>([]) // 上传的文件 URL 列表
+const chatSupportsImageInput = computed(() =>
+  activeConversation.value?.inputModalities?.includes('image') ?? false
+)
+const chatSupportsAudioInput = computed(() =>
+  activeConversation.value?.inputModalities?.includes('audio') ?? false
+)
+const chatSupportsVideoInput = computed(() =>
+  activeConversation.value?.inputModalities?.includes('video') ?? false
+)
+const chatSupportsAttachmentInput = computed(
+  () => chatSupportsImageInput.value || chatSupportsAudioInput.value || chatSupportsVideoInput.value
+)
+const chatUploadAcceptTypes = computed(() => {
+  const acceptTypes: string[] = []
+  if (chatSupportsImageInput.value) {
+    acceptTypes.unshift('.jpg', '.jpeg', '.png', '.webp')
+  }
+  if (chatSupportsAudioInput.value) {
+    acceptTypes.unshift('.mp3', '.wav', '.flac', '.m4a', '.ogg')
+  }
+  if (chatSupportsVideoInput.value) {
+    acceptTypes.unshift('.mp4', '.mov', '.avi', '.wmv')
+  }
+  return acceptTypes.join(',')
+})
 // 接收 Stream 消息
 const receiveMessageFullText = ref('')
 const receiveMessageDisplayedText = ref('')
+
+const imageUrlPattern = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|#|$)/i
+const audioUrlPattern = /\.(mp3|wav|flac|m4a|ogg)(\?|#|$)/i
+const videoUrlPattern = /\.(mp4|mov|avi|wmv)(\?|#|$)/i
+const hasImageAttachments = (urls: string[]) => urls.some((url) => imageUrlPattern.test(url))
+const hasAudioAttachments = (urls: string[]) => urls.some((url) => audioUrlPattern.test(url))
+const hasVideoAttachments = (urls: string[]) => urls.some((url) => videoUrlPattern.test(url))
 
 // =========== 【聊天对话】相关 ===========
 
@@ -418,6 +466,18 @@ const doSendMessage = async (content: string) => {
 
   // 准备附件 URL 数组
   const attachmentUrls = [...uploadFiles.value]
+  if (!chatSupportsImageInput.value && hasImageAttachments(attachmentUrls)) {
+    message.warning('当前模型不支持图片理解，请切换多模态模型后再发送图片')
+    return
+  }
+  if (!chatSupportsAudioInput.value && hasAudioAttachments(attachmentUrls)) {
+    message.warning('当前模型不支持音频理解，请切换多模态模型后再发送音频')
+    return
+  }
+  if (!chatSupportsVideoInput.value && hasVideoAttachments(attachmentUrls)) {
+    message.warning('当前模型不支持视频理解，请切换多模态模型后再发送视频')
+    return
+  }
 
   // 清空输入框和文件列表
   prompt.value = ''
@@ -472,14 +532,32 @@ const doSendMessageStream = async (userMessage: ChatMessageVO) => {
       conversationInAbortController.value,
       enableContext.value,
       enableWebSearch.value,
+      enableThinking.value,
       async (res) => {
-        const { code, data, msg } = JSON.parse(res.data)
+        if (!res.data) {
+          return
+        }
+        let result
+        try {
+          result = JSON.parse(res.data)
+        } catch (error) {
+          message.error('对话响应解析失败')
+          stopStream()
+          return
+        }
+        const { code, data, msg } = result
         if (code !== 0) {
           message.alert(`对话异常! ${msg}`)
           // 如果未接收到消息，则进行删除
           if (receiveMessageFullText.value === '') {
             activeMessageList.value.pop()
+            activeMessageList.value.pop()
           }
+          stopStream()
+          return
+        }
+
+        if (!data?.receive || !data?.send) {
           return
         }
 
@@ -516,7 +594,13 @@ const doSendMessageStream = async (userMessage: ChatMessageVO) => {
       },
       (error: any) => {
         // 异常提示，并停止流
-        message.alert(`对话异常！`)
+        console.error('对话异常', error)
+        message.alert(`对话异常！请检查模型/API Key 配置`)
+        if (receiveMessageFullText.value === '') {
+          activeMessageList.value = activeMessageList.value.filter(
+            (item) => item.id !== -1 && item.id !== -2
+          )
+        }
         stopStream()
         // 需要抛出异常，禁止重试
         throw error

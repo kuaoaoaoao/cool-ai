@@ -30,7 +30,7 @@
     popper-class="knowledge-popover"
   >
     <template #reference>
-      <div ref="documentRef"></div>
+      <div></div>
     </template>
     <template #default>
       <div class="text-16px font-bold mb-12px">{{ document?.title }}</div>
@@ -73,7 +73,6 @@ const document = ref<{
   }[]
 } | null>(null) // 知识库文档列表
 const dialogVisible = ref(false) // 知识引用详情弹窗
-const documentRef = ref<HTMLElement>() // 知识引用详情弹窗 Ref
 
 /** 按照 document 聚合 segments */
 const documentList = computed(() => {

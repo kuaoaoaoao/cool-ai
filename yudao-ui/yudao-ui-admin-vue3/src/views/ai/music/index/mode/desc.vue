@@ -21,25 +21,6 @@
       </template>
     </Title>
 
-    <Title title="版本" desc="描述您想要的音乐风格和主题，使用流派和氛围而不是特定的艺术家和歌曲">
-      <el-select v-model="formData.version" placeholder="请选择">
-        <el-option
-          v-for="item in [
-            {
-              value: '3',
-              label: 'V3'
-            },
-            {
-              value: '2',
-              label: 'V2'
-            }
-          ]"
-          :key="item.value"
-          :label="item.label"
-          :value="item.value"
-        />
-      </el-select>
-    </Title>
   </div>
 </template>
 
@@ -50,8 +31,7 @@ defineOptions({ name: 'Desc' })
 
 const formData = reactive({
   desc: '',
-  pure: false,
-  version: '3'
+  pure: false
 })
 
 defineExpose({

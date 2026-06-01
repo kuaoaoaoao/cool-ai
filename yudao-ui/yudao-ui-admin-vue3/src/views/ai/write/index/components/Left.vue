@@ -195,17 +195,21 @@ const switchTab = (value: TabType) => {
 
 /** 提交写作 */
 const submit = () => {
-  if (selectedTab.value === 2 && !formData.value.originalContent) {
+  const prompt = formData.value.prompt?.trim()
+  const originalContent = formData.value.originalContent?.trim()
+  if (selectedTab.value === 2 && !originalContent) {
     message.warning('请输入原文')
     return
   }
-  if (!formData.value.prompt) {
+  if (!prompt) {
     message.warning(`请输入${selectedTab.value === 1 ? '写作' : '回复'}内容`)
     return
   }
   emits('submit', {
     /** 撰写的时候没有 originalContent 字段**/
-    ...(selectedTab.value === 1 ? omit(formData.value, ['originalContent']) : formData.value),
+    ...(selectedTab.value === 1
+      ? omit({ ...formData.value, prompt }, ['originalContent'])
+      : { ...formData.value, prompt, originalContent }),
     /** 使用选中 tab 值覆盖当前的 type 类型 **/
     type: selectedTab.value
   })

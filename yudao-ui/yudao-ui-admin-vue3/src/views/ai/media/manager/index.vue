@@ -74,12 +74,18 @@
       <el-table-column label="模型" align="center" prop="model" width="170" />
       <el-table-column label="输入摘要" min-width="220">
         <template #default="{ row }">
-          {{ row.inputJson?.text || JSON.stringify(row.inputJson || {}) }}
+          {{ getInputSummary(row) }}
         </template>
       </el-table-column>
       <el-table-column label="结果" min-width="260">
         <template #default="{ row }">
-          <audio v-if="getAudioUrl(row)" :src="getAudioUrl(row)" controls class="h-32px max-w-240px" />
+          <audio v-if="getAudioUrl(row)" :src="getAudioUrl(row)" controls class="h-32px max-w-240px"></audio>
+          <video
+            v-else-if="getVideoUrl(row)"
+            :src="getVideoUrl(row)"
+            controls
+            class="h-120px max-w-240px rounded-4px bg-black"
+          ></video>
           <span v-else class="text-[var(--el-text-color-secondary)]">暂无</span>
         </template>
       </el-table-column>
@@ -100,6 +106,7 @@
 import { DICT_TYPE, getIntDictOptions } from '@/utils/dict'
 import { dateFormatter } from '@/utils/formatTime'
 import { AiMediaTaskApi, AiMediaTaskVO } from '@/api/ai/media'
+import { AiMediaTaskTypeEnum } from '@/views/ai/utils/constants'
 
 defineOptions({ name: 'AiMediaManager' })
 
@@ -139,7 +146,36 @@ const resetQuery = () => {
 }
 
 const getAudioUrl = (row: AiMediaTaskVO) => {
+  if (row.taskType !== AiMediaTaskTypeEnum.TTS) {
+    return undefined
+  }
   return row.outputJson?.url || row.resultFileIds?.[0]
+}
+
+const getVideoUrl = (row: AiMediaTaskVO) => {
+  if (row.taskType !== AiMediaTaskTypeEnum.IMAGE_TO_VIDEO && row.taskType !== AiMediaTaskTypeEnum.TEXT_TO_VIDEO) {
+    return undefined
+  }
+  return row.outputJson?.resultAsset?.url || row.outputJson?.url || row.resultFileIds?.[0]
+}
+
+const getInputSummary = (row: AiMediaTaskVO) => {
+  if (!row.inputJson) {
+    return ''
+  }
+  if (row.taskType === AiMediaTaskTypeEnum.IMAGE_TO_VIDEO) {
+    return [row.inputJson.imageSize, row.inputJson.prompt].filter(Boolean).join('：')
+  }
+  if (row.taskType === AiMediaTaskTypeEnum.TEXT_TO_VIDEO) {
+    return row.inputJson.prompt || JSON.stringify(row.inputJson)
+  }
+  if (row.inputJson.text) {
+    const voice = row.inputJson.voiceProfileId
+      ? `音色库 #${row.inputJson.voiceProfileId}`
+      : row.inputJson.voice || row.inputJson.voiceMode || ''
+    return [voice, row.inputJson.text].filter(Boolean).join('：')
+  }
+  return JSON.stringify(row.inputJson)
 }
 
 onMounted(getList)

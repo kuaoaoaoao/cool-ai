@@ -84,7 +84,7 @@
         >
           <el-option
             v-for="dict in getBoolDictOptions(DICT_TYPE.INFRA_BOOLEAN_STRING)"
-            :key="dict.value"
+            :key="String(dict.value)"
             :label="dict.label"
             :value="dict.value"
           />
@@ -146,7 +146,7 @@
       <el-table-column label="时长（秒）" align="center" prop="duration" width="100" />
       <el-table-column label="提示词" align="center" prop="prompt" width="180" />
       <el-table-column label="歌词" align="center" prop="lyric" width="180" />
-      <el-table-column label="描述" align="center" prop="gptDescriptionPrompt" width="180" />
+      <el-table-column label="描述" align="center" prop="description" width="180" />
       <el-table-column label="生成模式" align="center" prop="generateMode" width="100">
         <template #default="scope">
           <dict-tag :type="DICT_TYPE.AI_GENERATE_MODE" :value="scope.row.generateMode" />

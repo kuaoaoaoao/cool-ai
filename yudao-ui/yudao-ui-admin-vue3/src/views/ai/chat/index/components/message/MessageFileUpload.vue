@@ -112,9 +112,33 @@ const props = defineProps({
     type: Number,
     default: 10 // MB
   },
+  maxImageSize: {
+    type: Number,
+    default: 10 // MB
+  },
+  maxAudioSize: {
+    type: Number,
+    default: 35 // MB，小米 MiMo Base64 限制为 50MB 左右
+  },
+  maxVideoSize: {
+    type: Number,
+    default: 35 // MB，小米 MiMo Base64 限制为 50MB 左右
+  },
   acceptTypes: {
     type: String,
-    default: '.jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.txt,.xls,.xlsx,.ppt,.pptx,.csv,.md'
+    default: '.jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.flac,.m4a,.ogg,.mp4,.mov,.avi,.wmv'
+  },
+  allowImage: {
+    type: Boolean,
+    default: true
+  },
+  allowAudio: {
+    type: Boolean,
+    default: false
+  },
+  allowVideo: {
+    type: Boolean,
+    default: false
   },
   disabled: {
     type: Boolean,
@@ -150,6 +174,45 @@ const triggerFileInput = () => {
   fileInputRef.value?.click()
 }
 
+const isImageFile = (file: File) => {
+  if (file.type?.startsWith('image/')) {
+    return true
+  }
+  return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(file.name)
+}
+
+const isAudioFile = (file: File) => {
+  if (file.type?.startsWith('audio/')) {
+    return true
+  }
+  return /\.(mp3|wav|flac|m4a|ogg)$/i.test(file.name)
+}
+
+const isVideoFile = (file: File) => {
+  if (file.type?.startsWith('video/')) {
+    return true
+  }
+  return /\.(mp4|mov|avi|wmv)$/i.test(file.name)
+}
+
+const isAllowedFile = (file: File) =>
+  (props.allowImage && isImageFile(file)) ||
+  (props.allowAudio && isAudioFile(file)) ||
+  (props.allowVideo && isVideoFile(file))
+
+const getMaxSize = (file: File) => {
+  if (isImageFile(file)) {
+    return props.maxImageSize
+  }
+  if (isAudioFile(file)) {
+    return props.maxAudioSize
+  }
+  if (isVideoFile(file)) {
+    return props.maxVideoSize
+  }
+  return props.maxSize
+}
+
 /** 显示 tooltip */
 const showTooltipHandler = () => {
   if (hideTimer.value) {
@@ -174,16 +237,25 @@ const handleFileSelect = (event: Event) => {
   if (files.length === 0) {
     return
   }
+  const supportedFiles = files.filter(isAllowedFile)
+  if (supportedFiles.length !== files.length) {
+    message.warning('当前模型不支持该附件类型，请切换多模态模型或选择图片、音频、视频文件')
+  }
+  if (supportedFiles.length === 0) {
+    target.value = '' // 清空输入
+    return
+  }
   // 检查总文件数是否超过限制
-  if (files.length + fileList.value.length > props.limit) {
+  if (supportedFiles.length + fileList.value.length > props.limit) {
     message.error(`最多只能上传 ${props.limit} 个文件`)
     target.value = '' // 清空输入
     return
   }
   // 处理每个文件
-  files.forEach((file) => {
-    if (file.size > props.maxSize * 1024 * 1024) {
-      message.error(`文件 ${file.name} 大小超过 ${props.maxSize}MB`)
+  supportedFiles.forEach((file) => {
+    const maxSize = getMaxSize(file)
+    if (file.size > maxSize * 1024 * 1024) {
+      message.error(`文件 ${file.name} 大小超过 ${maxSize}MB`)
       return
     }
     const fileItem: FileItem = {

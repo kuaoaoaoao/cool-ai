@@ -67,8 +67,8 @@ const imageList = ref<ImageVO[]>([]) // image 列表
 const imageListLoadingInstance = ref<any>() // image 列表是否正在加载中
 const imageListRef = ref<any>() // ref
 // 图片轮询相关的参数（正在生成中的）
-const inProgressImageMap = ref<{}>({}) // 监听的 image 映射，一般是生成中（需要轮询），key 为 image 编号，value 为 image
-const inProgressTimer = ref<any>() // 生成中的 image 定时器，轮询生成进展
+const inProgressImageMap = ref<Record<number, ImageVO>>({}) // 监听的 image 映射，一般是生成中（需要轮询），key 为 image 编号，value 为 image
+const inProgressTimer = ref<ReturnType<typeof setInterval>>() // 生成中的 image 定时器，轮询生成进展
 // 图片详情相关的参数
 const isShowImageDetail = ref<boolean>(false) // 图片详情是否展示
 const showImageDetailId = ref<number>(0) // 图片详情的图片编号
@@ -103,7 +103,7 @@ const getImageList = async () => {
     pageTotal.value = total
 
     // 2. 计算需要轮询的图片
-    const newWatImages = {}
+    const newWatImages: Record<number, ImageVO> = {}
     imageList.value.forEach((item) => {
       if (item.status === AiImageStatusEnum.IN_PROGRESS) {
         newWatImages[item.id] = item
@@ -126,7 +126,7 @@ const refreshWatchImages = async () => {
     return
   }
   const list = (await ImageApi.getImageListMyByIds(imageIds)) as ImageVO[]
-  const newWatchImages = {}
+  const newWatchImages: Record<number, ImageVO> = {}
   list.forEach((image) => {
     if (image.status === AiImageStatusEnum.IN_PROGRESS) {
       newWatchImages[image.id] = image
@@ -159,6 +159,10 @@ const handleImageButtonClick = async (type: string, imageDetail: ImageVO) => {
   }
   // 下载
   if (type === 'download') {
+    if (!imageDetail.picUrl) {
+      message.warning('图片还未生成完成')
+      return
+    }
     download.image({ url: imageDetail.picUrl })
     return
   }

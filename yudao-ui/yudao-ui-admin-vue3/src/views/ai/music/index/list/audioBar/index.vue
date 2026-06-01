@@ -2,90 +2,135 @@
   <div
     class="flex items-center justify-between px-2 h-72px bg-[var(--el-bg-color-overlay)] b-solid b-1 b-[var(--el-border-color)] b-l-none"
   >
-    <!-- 歌曲信息 -->
     <div class="flex gap-[10px]">
-      <el-image
-        src="https://zos.alipayobjects.com/rmsportal/jkjgkEfvpUPVyRjUImniVslZfWPnJuuZ.png"
-        class="w-[45px]"
-      />
+      <el-image :src="currentSong.imageUrl || defaultCover" class="w-[45px] h-[45px]" fit="cover" />
       <div>
-        <div>{{ currentSong.name }}</div>
-        <div class="text-[12px] text-gray-400">{{ currentSong.singer }}</div>
+        <div>{{ currentSong.title || '未选择音乐' }}</div>
+        <div class="text-[12px] text-gray-400">{{ currentSong.model || 'Suno' }}</div>
       </div>
     </div>
 
-    <!-- 音频controls -->
     <div class="flex gap-[12px] items-center">
       <Icon icon="majesticons:back-circle" :size="20" class="text-gray-300 cursor-pointer" />
       <Icon
-        :icon="audioProps.paused ? 'mdi:arrow-right-drop-circle' : 'solar:pause-circle-bold'"
+        :icon="isPaused ? 'mdi:arrow-right-drop-circle' : 'solar:pause-circle-bold'"
         :size="30"
-        class="cursor-pointer"
-        @click="toggleStatus('paused')"
+        :class="currentSong.audioUrl ? 'cursor-pointer' : 'cursor-not-allowed text-gray-300'"
+        @click="togglePlay"
       />
       <Icon icon="majesticons:next-circle" :size="20" class="text-gray-300 cursor-pointer" />
       <div class="flex gap-[16px] items-center">
-        <span>{{ audioProps.currentTime }}</span>
-        <el-slider v-model="audioProps.duration" color="#409eff" class="w-[160px!important]" />
-        <span>{{ audioProps.duration }}</span>
+        <span>{{ currentTimeText }}</span>
+        <el-slider
+          v-model="currentTime"
+          :max="duration || 0"
+          color="#409eff"
+          class="w-[160px!important]"
+          @change="handleSeek"
+        />
+        <span>{{ durationText }}</span>
       </div>
-      <!-- 音频 -->
       <audio
-        v-bind="audioProps"
         ref="audioRef"
-        controls
-        v-show="!audioProps"
+        :src="currentSong.audioUrl"
+        class="hidden"
+        @loadedmetadata="handleLoadedMetadata"
         @timeupdate="audioTimeUpdate"
-      >
-        <source :src="audioUrl" />
-      </audio>
+        @ended="isPaused = true"
+      ></audio>
     </div>
 
-    <!-- 音量控制器 -->
     <div class="flex gap-[16px] items-center">
       <Icon
-        :icon="audioProps.muted ? 'tabler:volume-off' : 'tabler:volume'"
+        :icon="muted ? 'tabler:volume-off' : 'tabler:volume'"
         :size="20"
         class="cursor-pointer"
-        @click="toggleStatus('muted')"
+        @click="toggleMuted"
       />
-      <el-slider v-model="audioProps.volume" color="#409eff" class="w-[160px!important]" />
+      <el-slider v-model="volume" color="#409eff" class="w-[160px!important]" @change="handleVolumeChange" />
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { formatPast } from '@/utils/formatTime'
-import audioUrl from '@/assets/audio/response.mp3'
+import { MusicVO } from '@/api/ai/music'
 
-defineOptions({ name: 'Index' })
+defineOptions({ name: 'AiMusicAudioBar' })
 
-const currentSong = inject('currentSong', {})
+const currentSong = inject<Ref<Partial<MusicVO>>>('currentSong', ref({}))
+const defaultCover = 'https://dummyimage.com/90x90/e8eaf0/8b94a7&text=AI'
 
-const audioRef = ref<Nullable<HTMLElement>>(null)
-// 音频相关属性https://www.runoob.com/tags/ref-av-dom.html
-const audioProps = reactive({
-  autoplay: true,
-  paused: false,
-  currentTime: '00:00',
-  duration: '00:00',
-  muted: false,
-  volume: 50
-})
+const audioRef = ref<Nullable<HTMLAudioElement>>(null)
+const isPaused = ref(true)
+const currentTime = ref(0)
+const duration = ref(0)
+const muted = ref(false)
+const volume = ref(50)
 
-function toggleStatus(type: string) {
-  audioProps[type] = !audioProps[type]
-  if (type === 'paused' && audioRef.value) {
-    if (audioProps[type]) {
-      audioRef.value.pause()
-    } else {
-      audioRef.value.play()
-    }
+const currentTimeText = computed(() => formatSeconds(currentTime.value))
+const durationText = computed(() => formatSeconds(duration.value))
+
+watch(
+  () => currentSong.value.audioUrl,
+  async () => {
+    isPaused.value = true
+    currentTime.value = 0
+    duration.value = 0
+    await nextTick()
+    audioRef.value?.load()
+  }
+)
+
+function togglePlay() {
+  if (!currentSong.value.audioUrl || !audioRef.value) {
+    return
+  }
+  if (isPaused.value) {
+    audioRef.value.play()
+    isPaused.value = false
+  } else {
+    audioRef.value.pause()
+    isPaused.value = true
   }
 }
 
-// 更新播放位置
-function audioTimeUpdate(args) {
-  audioProps.currentTime = formatPast(new Date(args.timeStamp), 'mm:ss')
+function toggleMuted() {
+  muted.value = !muted.value
+  if (audioRef.value) {
+    audioRef.value.muted = muted.value
+  }
+}
+
+function handleVolumeChange(value: number) {
+  if (audioRef.value) {
+    audioRef.value.volume = value / 100
+  }
+}
+
+function handleSeek(value: number) {
+  if (audioRef.value) {
+    audioRef.value.currentTime = value
+  }
+}
+
+function handleLoadedMetadata() {
+  duration.value = audioRef.value?.duration || 0
+  handleVolumeChange(volume.value)
+  if (audioRef.value) {
+    audioRef.value.muted = muted.value
+  }
+}
+
+function audioTimeUpdate() {
+  currentTime.value = audioRef.value?.currentTime || 0
+}
+
+function formatSeconds(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '00:00'
+  }
+  const minutes = Math.floor(value / 60)
+  const seconds = Math.floor(value % 60)
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 </script>

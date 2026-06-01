@@ -22,7 +22,20 @@
             :key="model.id"
             :label="model.name"
             :value="model.id"
-          />
+          >
+            <div class="flex items-center justify-between gap-12px">
+              <span>{{ model.name }}</span>
+              <span class="flex gap-4px">
+                <el-tag v-if="model.inputModalities?.includes('image')" size="small" type="success">
+                  视觉
+                </el-tag>
+                <el-tag v-if="model.capabilities?.includes('tool')" size="small" type="warning">
+                  工具
+                </el-tag>
+                <el-tag size="small" type="info">文本</el-tag>
+              </span>
+            </div>
+          </el-option>
         </el-select>
       </el-form-item>
       <el-form-item label="温度参数" prop="temperature">
@@ -72,7 +85,11 @@ const message = useMessage() // 消息弹窗
 
 const dialogVisible = ref(false) // 弹窗的是否展示
 const formLoading = ref(false) // 表单的加载中：1）修改时的数据加载；2）提交的按钮禁用
-const formData = ref({
+type ConversationFormData = Pick<
+  ChatConversationVO,
+  'id' | 'systemMessage' | 'modelId' | 'temperature' | 'maxTokens' | 'maxContexts'
+>
+const formData = ref<Partial<ConversationFormData>>({
   id: undefined,
   systemMessage: undefined,
   modelId: undefined,
@@ -99,12 +116,14 @@ const open = async (id: number) => {
     formLoading.value = true
     try {
       const data = await ChatConversationApi.getChatConversationMy(id)
-      formData.value = Object.keys(formData.value).reduce((obj, key) => {
-        if (data.hasOwnProperty(key)) {
-          obj[key] = data[key]
-        }
-        return obj
-      }, {})
+      formData.value = {
+        id: data.id,
+        systemMessage: data.systemMessage,
+        modelId: data.modelId,
+        temperature: data.temperature,
+        maxTokens: data.maxTokens,
+        maxContexts: data.maxContexts
+      }
     } finally {
       formLoading.value = false
     }

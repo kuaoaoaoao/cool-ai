@@ -54,6 +54,10 @@ const stopStream = () => {
 
 /** 提交生成 */
 const submit = (data: AiMindMapGenerateReqVO) => {
+  if (!data.prompt?.trim()) {
+    message.warning('请输入思维导图内容提示')
+    return
+  }
   isGenerating.value = true
   isStart.value = true
   isEnd.value = false
@@ -62,7 +66,18 @@ const submit = (data: AiMindMapGenerateReqVO) => {
   AiMindMapApi.generateMindMap({
     data,
     onMessage: async (res) => {
-      const { code, data, msg } = JSON.parse(res.data)
+      if (!res.data) {
+        return
+      }
+      let result
+      try {
+        result = JSON.parse(res.data)
+      } catch (error) {
+        message.error('思维导图响应解析失败')
+        stopStream()
+        return
+      }
+      const { code, data, msg } = result
       if (code !== 0) {
         message.alert(`生成思维导图异常! ${msg}`)
         stopStream()
@@ -79,6 +94,7 @@ const submit = (data: AiMindMapGenerateReqVO) => {
     },
     onError(err) {
       console.error('生成思维导图失败', err)
+      message.error('思维导图生成失败，请检查模型/API Key 配置')
       stopStream()
       // 需要抛出异常，禁止重试
       throw err

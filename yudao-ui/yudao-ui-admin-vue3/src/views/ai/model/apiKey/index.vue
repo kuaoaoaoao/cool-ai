@@ -75,8 +75,17 @@
           <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status" />
         </template>
       </el-table-column>
-      <el-table-column label="操作" align="center">
+      <el-table-column label="操作" align="center" width="240" fixed="right">
         <template #default="scope">
+          <el-button
+            link
+            type="success"
+            :loading="testingId === scope.row.id"
+            @click="handleTestConnection(scope.row.id)"
+            v-hasPermi="['ai:api-key:query']"
+          >
+            测试连接
+          </el-button>
           <el-button
             link
             type="primary"
@@ -131,6 +140,7 @@ const queryParams = reactive({
   status: undefined
 })
 const queryFormRef = ref() // 搜索的表单
+const testingId = ref<number>() // 当前测试中的 API Key 编号
 
 /** 查询列表 */
 const getList = async () => {
@@ -173,6 +183,32 @@ const handleDelete = async (id: number) => {
     // 刷新列表
     await getList()
   } catch {}
+}
+
+/** 测试连接 */
+const handleTestConnection = async (id: number) => {
+  testingId.value = id
+  try {
+    const result = await ApiKeyApi.testApiKeyConnection(id)
+    showConnectionTestResult(result)
+  } finally {
+    testingId.value = undefined
+  }
+}
+
+const showConnectionTestResult = (result: any) => {
+  const lines = [
+    `平台：${result.platform || '-'}`,
+    `模型：${result.model || '-'}`,
+    `耗时：${result.durationMillis ?? '-'} ms`
+  ]
+  if (!result.success) {
+    lines.push(`错误码：${result.errorCode || '-'}`)
+    lines.push(`错误详情：${result.detail || result.message || '-'}`)
+    message.alertError(lines.join('\n'))
+    return
+  }
+  message.alertSuccess([result.message || '连接测试成功', ...lines].join('\n'))
 }
 
 /** 初始化 **/

@@ -12,7 +12,7 @@
 </template>
 
 <script lang="ts" setup>
-defineOptions({ name: 'Index' })
+defineOptions({ name: 'AiMusicTitle' })
 
 defineProps({
   title: {

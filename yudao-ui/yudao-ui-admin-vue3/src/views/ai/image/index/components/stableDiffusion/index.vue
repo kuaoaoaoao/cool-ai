@@ -168,8 +168,8 @@ const drawIn = ref<boolean>(false) // 生成中
 const selectHotWord = ref<string>('') // 选中的热词
 // 表单
 const prompt = ref<string>('') // 提示词
-const width = ref<number>(512) // 图片宽度
-const height = ref<number>(512) // 图片高度
+const width = ref<number | string>(512) // 图片宽度
+const height = ref<number | string>(512) // 图片高度
 const sampler = ref<string>('DDIM') // 采样方法
 const steps = ref<number>(20) // 迭代步数
 const seed = ref<number>(42) // 控制生成图像的随机性
@@ -218,8 +218,8 @@ const handleGenerateImage = async () => {
     const form = {
       modelId: matchedModel.id,
       prompt: prompt.value, // 提示词
-      width: width.value, // 图片宽度
-      height: height.value, // 图片高度
+      width: Number(width.value), // 图片宽度
+      height: Number(height.value), // 图片高度
       options: {
         seed: seed.value, // 随机种子
         steps: steps.value, // 图片生成步数
@@ -243,15 +243,14 @@ const settingValues = async (detail: ImageVO) => {
   prompt.value = detail.prompt
   width.value = detail.width
   height.value = detail.height
-  seed.value = detail.options?.seed
-  steps.value = detail.options?.steps
-  scale.value = detail.options?.scale
-  sampler.value = detail.options?.sampler
-  clipGuidancePreset.value = detail.options?.clipGuidancePreset
-  stylePreset.value = detail.options?.stylePreset
+  seed.value = Number(detail.options?.seed ?? seed.value)
+  steps.value = Number(detail.options?.steps ?? steps.value)
+  scale.value = Number(detail.options?.scale ?? scale.value)
+  sampler.value = detail.options?.sampler || sampler.value
+  clipGuidancePreset.value = detail.options?.clipGuidancePreset || clipGuidancePreset.value
+  stylePreset.value = detail.options?.stylePreset || stylePreset.value
 }
 
 /** 暴露组件方法 */
 defineExpose({ settingValues })
 </script>
-

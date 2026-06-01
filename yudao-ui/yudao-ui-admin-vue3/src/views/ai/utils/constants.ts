@@ -18,11 +18,13 @@ export const AiPlatformEnum = {
   XING_HUO: 'XingHuo', // 讯飞
   SiliconFlow: 'SiliconFlow', // 硅基流动
   OPENAI: 'OpenAI',
+  ANTHROPIC: 'Anthropic',
   Ollama: 'Ollama',
   STABLE_DIFFUSION: 'StableDiffusion', // Stability AI
   MIDJOURNEY: 'Midjourney', // Midjourney
   SUNO: 'Suno', // Suno AI
-  XIAOMI_MIMO: 'XiaomiMiMo' // 小米 MiMo
+  XIAOMI_MIMO: 'XiaomiMiMo', // 小米 MiMo
+  PYTHON_WORKER: 'PythonWorker' // Python Worker
 }
 
 export const AiModelTypeEnum = {
@@ -71,15 +73,22 @@ export const AiMusicStatusEnum = {
   FAIL: 30 // 已失败
 }
 
+export const AiMusicGenerateModeEnum = {
+  DESCRIPTION: 1, // 描述模式
+  LYRIC: 2 // 歌词模式
+}
+
 /**
  * AI 媒体任务状态的枚举
  */
 export const AiMediaTaskStatusEnum = {
   CREATED: 0, // 已创建
   QUEUED: 10, // 排队中
+  SUBMITTED: 15, // 已提交
   RUNNING: 20, // 进行中
   SUCCEEDED: 30, // 已完成
   FAILED: 40, // 已失败
+  CANCELLING: 45, // 取消中
   CANCELLED: 50, // 已取消
   RETRYING: 60 // 重试中
 }
@@ -89,7 +98,9 @@ export const AiMediaTaskStatusEnum = {
  */
 export const AiMediaTaskTypeEnum = {
   UNKNOWN: 0, // 未知
-  TTS: 1 // 文本转语音
+  TTS: 1, // 文本转语音
+  IMAGE_TO_VIDEO: 2, // 图生视频
+  TEXT_TO_VIDEO: 3 // 文生视频
 }
 
 /**

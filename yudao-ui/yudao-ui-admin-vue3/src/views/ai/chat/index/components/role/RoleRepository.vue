@@ -75,6 +75,7 @@ import { useTagsViewStore } from '@/store/modules/tagsView'
 const router = useRouter() // 路由对象
 const { currentRoute } = useRouter() // 路由
 const { delView } = useTagsViewStore() // 视图操作
+const message = useMessage() // 消息弹窗
 
 // 属性定义
 const loading = ref<boolean>(false) // 加载中
@@ -167,7 +168,7 @@ const handlerCardEdit = async (role) => {
 }
 
 /** 添加角色成功 */
-const handlerAddRoleSuccess = async (e) => {
+const handlerAddRoleSuccess = async () => {
   // 刷新数据
   await getActiveTabsRole()
 }
@@ -197,20 +198,25 @@ const handlerCardPage = async (type) => {
 
 /** 选择 card 角色：新建聊天对话 */
 const handlerCardUse = async (role) => {
-  // 1. 创建对话
-  const data: ChatConversationVO = {
-    roleId: role.id
-  } as unknown as ChatConversationVO
-  const conversationId = await ChatConversationApi.createChatConversationMy(data)
+  try {
+    // 1. 创建对话
+    const data: ChatConversationVO = {
+      roleId: role.id
+    } as unknown as ChatConversationVO
+    const conversationId = await ChatConversationApi.createChatConversationMy(data)
 
-  // 2. 跳转页面
-  delView(unref(currentRoute))
-  await router.replace({
-    name: 'AiChat',
-    query: {
-      conversationId: conversationId
-    }
-  })
+    // 2. 跳转页面
+    delView(unref(currentRoute))
+    await router.replace({
+      name: 'AiChat',
+      query: {
+        conversationId: conversationId
+      }
+    })
+  } catch (error) {
+    console.error('使用角色创建对话失败', error)
+    message.error('创建对话失败，请检查角色绑定模型或默认聊天模型配置')
+  }
 }
 
 /** 初始化 **/

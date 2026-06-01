@@ -9,10 +9,13 @@ export interface ChatConversationVO {
   roleId: number // 角色编号
   modelId: number // 模型编号
   model: string // 模型标志
+  capabilities?: string[] // 模型能力标签
+  inputModalities?: string[] // 输入模态
+  outputModalities?: string[] // 输出模态
   temperature: number // 温度参数
   maxTokens: number // 单条回复的最大 Token 数量
   maxContexts: number // 上下文的最大 Message 数量
-  createTime?: Date // 创建时间
+  createTime?: Date | string // 创建时间
   // 额外字段
   systemMessage?: string // 角色设定
   modelName?: string // 模型名字
@@ -39,7 +42,7 @@ export const ChatConversationApi = {
   },
 
   // 删除【我的】聊天对话
-  deleteChatConversationMy: async (id: string) => {
+  deleteChatConversationMy: async (id: number | string) => {
     return await request.delete({ url: `/ai/chat/conversation/delete-my?id=${id}` })
   },
 

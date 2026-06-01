@@ -14,7 +14,16 @@
 
     <Title title="音乐风格">
       <el-space class="flex-wrap">
-        <el-tag v-for="tag in tags" :key="tag" round class="mb-8px">{{ tag }}</el-tag>
+        <el-tag
+          v-for="tag in tags"
+          :key="tag"
+          round
+          class="mb-8px cursor-pointer"
+          :type="formData.tags.includes(tag) ? 'primary' : 'info'"
+          @click="toggleTag(tag)"
+        >
+          {{ tag }}
+        </el-tag>
       </el-space>
 
       <el-button
@@ -48,25 +57,6 @@
       <el-input v-model="formData.name" placeholder="请输入音乐/歌曲名称" />
     </Title>
 
-    <Title title="版本">
-      <el-select v-model="formData.version" placeholder="请选择">
-        <el-option
-          v-for="item in [
-            {
-              value: '3',
-              label: 'V3'
-            },
-            {
-              value: '2',
-              label: 'V2'
-            }
-          ]"
-          :key="item.value"
-          :label="item.label"
-          :value="item.value"
-        />
-      </el-select>
-    </Title>
   </div>
 </template>
 
@@ -82,8 +72,17 @@ const formData = reactive({
   lyric: '',
   style: '',
   name: '',
-  version: ''
+  tags: ['pop']
 })
+
+const toggleTag = (tag: string) => {
+  const index = formData.tags.indexOf(tag)
+  if (index >= 0) {
+    formData.tags.splice(index, 1)
+    return
+  }
+  formData.tags.push(tag)
+}
 
 defineExpose({
   formData

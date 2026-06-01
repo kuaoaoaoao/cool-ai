@@ -44,10 +44,10 @@
         @change="handlerPlatformChange"
       >
         <el-option
-          v-for="item in OtherPlatformEnum"
-          :key="item.key"
-          :label="item.name"
-          :value="item.key"
+          v-for="item in platformOptions"
+          :key="item.platform"
+          :label="item.label"
+          :value="item.platform"
         />
       </el-select>
     </el-space>
@@ -91,7 +91,7 @@
 </template>
 <script setup lang="ts">
 import { ImageApi, ImageDrawReqVO, ImageVO } from '@/api/ai/image'
-import { AiPlatformEnum, ImageHotWords, OtherPlatformEnum } from '@/views/ai/utils/constants'
+import { AiPlatformEnum, ImageHotWords } from '@/views/ai/utils/constants'
 import { ModelVO } from '@/api/ai/model/model'
 
 const message = useMessage() // 消息弹窗
@@ -116,6 +116,26 @@ const otherPlatform = ref<string>(AiPlatformEnum.TONG_YI) // 平台
 const platformModels = ref<ModelVO[]>([]) // 模型列表
 const modelId = ref<number>() // 选中的模型
 
+const platformLabelMap: Record<string, string> = {
+  [AiPlatformEnum.TONG_YI]: '通义万相',
+  [AiPlatformEnum.YI_YAN]: '百度千帆',
+  [AiPlatformEnum.ZHI_PU]: '智谱 AI',
+  [AiPlatformEnum.SiliconFlow]: '硅基流动',
+  [AiPlatformEnum.OPENAI]: 'OpenAI',
+  [AiPlatformEnum.STABLE_DIFFUSION]: 'Stability AI',
+  [AiPlatformEnum.MIDJOURNEY]: 'Midjourney'
+}
+
+const platformOptions = computed(() => {
+  const platforms = Array.from(new Set(props.models.map((item: ModelVO) => item.platform)))
+  return platforms
+    .filter((platform) => ![AiPlatformEnum.OPENAI, AiPlatformEnum.STABLE_DIFFUSION, AiPlatformEnum.MIDJOURNEY].includes(platform))
+    .map((platform) => ({
+      platform,
+      label: platformLabelMap[platform] || platform
+    }))
+})
+
 /** 选择热词 */
 const handleHotWordClick = async (hotWord: string) => {
   // 情况一：取消选中
@@ -131,6 +151,10 @@ const handleHotWordClick = async (hotWord: string) => {
 
 /** 图片生成 */
 const handleGenerateImage = async () => {
+  if (!modelId.value) {
+    message.warning('请先选择可用的绘图模型')
+    return
+  }
   // 二次确认
   await message.confirm(`确认生成内容?`)
   try {
@@ -146,7 +170,7 @@ const handleGenerateImage = async () => {
       width: width.value, // 图片宽度
       height: height.value, // 图片高度
       options: {}
-    } as unknown as ImageDrawReqVO
+    } as ImageDrawReqVO
     await ImageApi.drawImage(form)
   } finally {
     // 回调
@@ -180,6 +204,9 @@ const handlerPlatformChange = async (platform: string) => {
 watch(
   () => props.models,
   () => {
+    if (platformOptions.value.length > 0 && !platformOptions.value.some((item) => item.platform === otherPlatform.value)) {
+      otherPlatform.value = platformOptions.value[0].platform
+    }
     handlerPlatformChange(otherPlatform.value)
   },
   { immediate: true, deep: true }

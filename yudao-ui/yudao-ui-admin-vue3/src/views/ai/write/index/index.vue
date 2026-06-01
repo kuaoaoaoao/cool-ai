@@ -44,7 +44,18 @@ const submit = (data: WriteVO) => {
   WriteApi.writeStream({
     data,
     onMessage: async (res) => {
-      const { code, data, msg } = JSON.parse(res.data)
+      if (!res.data) {
+        return
+      }
+      let result
+      try {
+        result = JSON.parse(res.data)
+      } catch (error) {
+        message.error('写作响应解析失败')
+        stopStream()
+        return
+      }
+      const { code, data, msg } = result
       if (code !== 0) {
         message.alert(`写作异常! ${msg}`)
         stopStream()
@@ -59,6 +70,7 @@ const submit = (data: WriteVO) => {
     onClose: stopStream,
     onError: (error) => {
       console.error('写作异常', error)
+      message.error('写作生成失败，请检查模型/API Key 配置')
       stopStream()
       // 需要抛出异常，禁止重试
       throw error
