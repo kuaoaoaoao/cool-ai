@@ -70,13 +70,20 @@ public class AiUtils {
 
     public static ChatOptions buildChatOptions(AiPlatformEnum platform, String model, Double temperature, Integer maxTokens,
                                                List<ToolCallback> toolCallbacks, Map<String, Object> toolContext) {
+        return buildChatOptions(platform, model, temperature, maxTokens, toolCallbacks, toolContext, true);
+    }
+
+    public static ChatOptions buildChatOptions(AiPlatformEnum platform, String model, Double temperature, Integer maxTokens,
+                                               List<ToolCallback> toolCallbacks, Map<String, Object> toolContext,
+                                               Boolean enableThinking) {
         toolCallbacks = ObjUtil.defaultIfNull(toolCallbacks, Collections.emptyList());
         toolContext = ObjUtil.defaultIfNull(toolContext, Collections.emptyMap());
+        enableThinking = ObjUtil.defaultIfNull(enableThinking, true);
         // noinspection EnhancedSwitchMigration
         switch (platform) {
             case TONG_YI:
                 return DashScopeChatOptions.builder().model(model).temperature(temperature).maxToken(maxTokens)
-                        .enableThinking(true) // TODO 芋艿：默认都开启 thinking 模式，后续可以让用户配置
+                        .enableThinking(enableThinking)
                         .multiModel(TONG_YI_MULTI_MODELS.contains(model)) // 是否多模态模型
                         .toolCallbacks(toolCallbacks).toolContext(toolContext).build();
             case YI_YAN:

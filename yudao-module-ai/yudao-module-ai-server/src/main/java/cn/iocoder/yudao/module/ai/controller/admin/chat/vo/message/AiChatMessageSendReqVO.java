@@ -25,6 +25,9 @@ public class AiChatMessageSendReqVO {
     @Schema(description = "是否联网搜索", example = "true")
     private Boolean useSearch;
 
+    @Schema(description = "是否开启深度思考", example = "true")
+    private Boolean enableThinking;
+
     @Schema(description = "附件 URL 数组", example = "https://www.iocoder.cn/1.png")
     private List<String> attachmentUrls;
 

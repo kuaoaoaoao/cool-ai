@@ -507,7 +507,7 @@ public class AiChatMessageServiceImpl implements AiChatMessageService {
         // 2.2 构建 ChatOptions 对象
         ChatOptions chatOptions = AiUtils.buildChatOptions(platform, model.getModel(),
                 conversation.getTemperature(), conversation.getMaxTokens(),
-                toolCallbacks, toolContext);
+                toolCallbacks, toolContext, sendReqVO.getEnableThinking());
         return new Prompt(chatMessages, chatOptions);
     }
 
